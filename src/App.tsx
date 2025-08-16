@@ -1,219 +1,190 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import SensorTest from "./SensorTest";
 
-// Use existing Window interface from electron-env.d.ts
+// Simple inline toast (non-blocking)
+function Toast({ message, type }: { message: string; type: "info" | "error" }) {
+  const bg = type === "error" ? "#c0392b" : "#2d7bf4";
+  return (
+    <div
+      style={{
+        position: "fixed",
+        bottom: 20,
+        left: 20,
+        maxWidth: 560,
+        background: bg,
+        color: "white",
+        padding: "10px 14px",
+        borderRadius: 6,
+        boxShadow: "0 6px 16px rgba(0,0,0,0.25)",
+        zIndex: 1000,
+        fontSize: 13,
+        lineHeight: 1.35,
+      }}
+    >
+      {message}
+    </div>
+  );
+}
 
 export default function App() {
   const [showUrlDialog, setShowUrlDialog] = useState(false);
   const [urlInput, setUrlInput] = useState("http://10.168.1.90:7180/");
   const [visualizationOpen, setVisualizationOpen] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; type: "info" | "error" } | null>(null);
+  const [appVersion, setAppVersion] = useState<string>("");
 
-  // Check if we're in visualization mode
-  const urlParams = new URLSearchParams(window.location.search);
-  const isVisualizationMode = urlParams.get('mode') === 'visualization';
+  // Auto-hide toast
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2800);
+    return () => clearTimeout(t);
+  }, [toast]);
 
-  console.log('Current URL:', window.location.href);
-  console.log('Is visualization mode:', isVisualizationMode);
+  // Visualization mode
+  const isVisualizationMode = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("mode") === "visualization";
+  }, []);
 
-  // If we're in visualization mode, just show the sensor test
-  if (isVisualizationMode) {
-    return <SensorTest />;
-  }
+  if (isVisualizationMode) return <SensorTest />;
 
-  // Set up IPC listeners for visualization state
+  // IPC listeners + fetch version
   useEffect(() => {
     if (!window.ipcRenderer) return;
 
-    const handleVisualizationOpened = () => {
-      setVisualizationOpen(true);
-    };
+    const handleVisualizationOpened = () => setVisualizationOpen(true);
+    const handleVisualizationClosed = () => setVisualizationOpen(false);
 
-    const handleVisualizationClosed = () => {
-      setVisualizationOpen(false);
-    };
-
-    window.ipcRenderer.on('visualization-opened', handleVisualizationOpened);
-    window.ipcRenderer.on('visualization-closed', handleVisualizationClosed);
+    window.ipcRenderer.on("visualization-opened", handleVisualizationOpened);
+    window.ipcRenderer.on("visualization-closed", handleVisualizationClosed);
+    window.ipcRenderer.invoke("get-app-version").then((v) => v && setAppVersion(v));
 
     return () => {
-      window.ipcRenderer?.off('visualization-opened', handleVisualizationOpened);
-      window.ipcRenderer?.off('visualization-closed', handleVisualizationClosed);
+      window.ipcRenderer?.off("visualization-opened", handleVisualizationOpened);
+      window.ipcRenderer?.off("visualization-closed", handleVisualizationClosed);
     };
   }, []);
 
-  const openJunctionRelay = () => {
-    console.log("JunctionRelay Local button clicked");
-    setShowUrlDialog(true);
-  };
-
+  const openJunctionRelay = () => setShowUrlDialog(true);
   const openJunctionRelayCloud = () => {
-    console.log("JunctionRelay Cloud button clicked");
-    
-    if (!window.ipcRenderer) {
-      console.error("ipcRenderer is not available");
-      alert("Error: ipcRenderer is not available. Check preload script.");
-      return;
-    }
-    
+    if (!window.ipcRenderer) return setToast({ msg: "ipcRenderer unavailable.", type: "error" });
     try {
       window.ipcRenderer.send("open-external", "https://dashboard.junctionrelay.com");
-      console.log("Opening JunctionRelay Cloud dashboard");
-    } catch (error) {
-      console.error("Error opening cloud dashboard:", error);
-      alert("Error opening cloud dashboard");
+      setToast({ msg: "Opening JunctionRelay Cloud…", type: "info" });
+    } catch {
+      setToast({ msg: "Error opening cloud dashboard.", type: "error" });
     }
   };
-
-  const openJunctionRelaySettings = () => {
-    alert("JunctionRelay Settings: coming soon");
-  };
-
-  const startWebSocketServer = () => {
-    alert("WebSocket Server: coming soon");
-  };
+  const openJunctionRelaySettings = () => setToast({ msg: "Settings coming soon.", type: "info" });
+  const startWebSocketServer = () => setToast({ msg: "WebSocket Server coming soon.", type: "info" });
 
   const launchVisualization = () => {
-    if (visualizationOpen) {
-      // Close visualization
-      console.log("Close Visualization button clicked");
-      
-      if (!window.ipcRenderer) {
-        console.error("ipcRenderer is not available");
-        alert("Error: ipcRenderer is not available. Check preload script.");
-        return;
-      }
-      
-      try {
-        window.ipcRenderer.send("close-visualization");
-        console.log("Visualization close request sent");
-      } catch (error) {
-        console.error("Error closing visualization:", error);
-        alert("Error closing visualization");
-      }
-    } else {
-      // Launch visualization
-      console.log("Launch Visualization button clicked");
-      
-      if (!window.ipcRenderer) {
-        console.error("ipcRenderer is not available");
-        alert("Error: ipcRenderer is not available. Check preload script.");
-        return;
-      }
-      
-      try {
-        window.ipcRenderer.send("open-visualization");
-        console.log("Visualization launch request sent");
-      } catch (error) {
-        console.error("Error launching visualization:", error);
-        alert("Error launching visualization");
-      }
+    if (!window.ipcRenderer) return setToast({ msg: "ipcRenderer unavailable.", type: "error" });
+    try {
+      if (visualizationOpen) window.ipcRenderer.send("close-visualization");
+      else window.ipcRenderer.send("open-visualization");
+    } catch {
+      setToast({ msg: visualizationOpen ? "Error closing visualization." : "Error launching visualization.", type: "error" });
     }
   };
 
-  const openVirtualDeviceSettings = () => {
-    alert("Virtual Device Settings: coming soon");
-  };
+  const openVirtualDeviceSettings = () => setToast({ msg: "Virtual Device Settings coming soon.", type: "info" });
 
   const handleOpenUrl = () => {
-    console.log("Attempting to open URL:", urlInput);
-    
-    if (!window.ipcRenderer) {
-      console.error("ipcRenderer is not available");
-      alert("Error: ipcRenderer is not available. Check preload script.");
-      return;
-    }
-    
-    if (!urlInput.trim()) {
-      console.log("No URL entered");
-      alert("Please enter a URL");
-      return;
-    }
-
-    if (!/^https?:\/\//i.test(urlInput)) {
-      console.log("Invalid URL format");
-      alert("Please enter a valid http/https URL.");
-      return;
-    }
-    
-    console.log("Sending open-external message with URL:", urlInput);
+    if (!window.ipcRenderer) return setToast({ msg: "ipcRenderer unavailable.", type: "error" });
+    if (!urlInput.trim()) return setToast({ msg: "Please enter a URL.", type: "info" });
+    if (!/^https?:\/\//i.test(urlInput)) return setToast({ msg: "Enter a valid http/https URL.", type: "info" });
     try {
       window.ipcRenderer.send("open-external", urlInput);
-      console.log("Message sent successfully");
       setShowUrlDialog(false);
-    } catch (error) {
-      console.error("Error sending message:", error);
-      alert("Error sending message to main process");
+      setToast({ msg: "Opening URL…", type: "info" });
+    } catch {
+      setToast({ msg: "Error sending message to main process.", type: "error" });
     }
   };
 
   const quitApp = () => {
-    if (!window.ipcRenderer) {
-      console.error("ipcRenderer is not available");
-      return;
-    }
-    
+    if (!window.ipcRenderer) return;
     try {
       window.ipcRenderer.send("quit-app");
-    } catch (error) {
-      console.error("Error quitting app:", error);
+    } catch {
+      setToast({ msg: "Error quitting app.", type: "error" });
     }
   };
 
-  const handleCancelUrl = () => {
-    setShowUrlDialog(false);
-  };
+  const handleCancelUrl = () => setShowUrlDialog(false);
 
   return (
-    <div style={{ padding: 24, fontFamily: "system-ui, Arial, sans-serif", position: "relative", minHeight: "calc(100vh - 80px)", paddingBottom: 60 }}>
-      <h1 style={{ marginTop: 0 }}>JunctionRelay</h1>
-      <p style={{ color: "#666" }}>
-        Virtual device with WebSocket server and Rive visualization.
-      </p>
+    <div
+      style={{
+        // 🔒 Lock the app to the viewport with no overflow
+        height: "100vh",
+        width: "100vw",
+        overflow: "hidden",
+        boxSizing: "border-box",
+        margin: 0,
+        padding: 24,
+        background: "#111",
+        color: "#eaeaea",
+        fontFamily: "system-ui, Arial, sans-serif",
+        display: "flex",
+        flexDirection: "column",
+        gap: 16,
+      }}
+    >
+      <header>
+        <h1 style={{ margin: 0 }}>JunctionRelay</h1>
+        <p style={{ color: "#9aa0a6", margin: "6px 0 0" }}>
+          Virtual device with WebSocket server and Rive visualization.
+        </p>
+      </header>
 
-      {/* JunctionRelay Access */}
-      <div style={{ marginTop: 16 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 8 }}>
-          <div style={{ display: "flex", gap: 12 }}>
-            <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={openJunctionRelay}>
-              🏠 Local Server
-            </button>
-            <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={openJunctionRelayCloud}>
-              ☁️ Cloud Dashboard
-            </button>
+      <main style={{ flex: 1, overflow: "hidden" }}>
+        {/* JunctionRelay Access */}
+        <section>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 8 }}>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={openJunctionRelay}>
+                🏠 Local Server
+              </button>
+              <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={openJunctionRelayCloud}>
+                ☁️ Cloud Dashboard
+              </button>
+            </div>
+            <div>
+              <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={openJunctionRelaySettings}>
+                ⚙️ Settings
+              </button>
+            </div>
           </div>
-          <div>
-            <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={openJunctionRelaySettings}>
-              ⚙️ Settings
-            </button>
-          </div>
-        </div>
-      </div>
+        </section>
 
-      {/* Divider */}
-      <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #ccc" }} />
+        {/* Divider (tight margins to avoid vertical expansion) */}
+        <hr style={{ margin: "12px 0", border: "none", borderTop: "1px solid #333" }} />
 
-      {/* Virtual Device Section */}
-      <div>
-        <h3 style={{ marginTop: 0, marginBottom: 16 }}>JunctionRelay Virtual Device</h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ display: "flex", gap: 12 }}>
-            <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={startWebSocketServer}>
-              ▶️ Start WebSocket Server
-            </button>
-            <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={launchVisualization}>
-              {visualizationOpen ? "❌ Close Visualization" : "🎨 Launch Visualization"}
-            </button>
+        {/* Virtual Device Section */}
+        <section>
+          <h3 style={{ margin: "0 0 12px" }}>JunctionRelay Virtual Device</h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={startWebSocketServer}>
+                ▶️ Start WebSocket Server
+              </button>
+              <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={launchVisualization}>
+                {visualizationOpen ? "❌ Close Visualization" : "🎨 Launch Visualization"}
+              </button>
+            </div>
+            <div>
+              <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={openVirtualDeviceSettings}>
+                ⚙️ Settings
+              </button>
+            </div>
           </div>
-          <div>
-            <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={openVirtualDeviceSettings}>
-              ⚙️ Settings
-            </button>
-          </div>
-        </div>
-      </div>
+        </section>
+      </main>
 
-      {/* Quit Button */}
-      <button 
+      {/* Quit Button (fixed) */}
+      <button
         onClick={quitApp}
         style={{
           position: "fixed",
@@ -227,34 +198,54 @@ export default function App() {
           color: "white",
           fontSize: 12,
           fontWeight: 500,
-          zIndex: 1000
+          zIndex: 1000,
         }}
       >
         🚪 Quit
       </button>
 
+      {/* Version (fixed, bottom-left) */}
+      {appVersion && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 20,
+            left: 20,
+            fontSize: 12,
+            color: "#9aa0a6",
+            zIndex: 1000,
+            userSelect: "none",
+          }}
+        >
+          v{appVersion}
+        </div>
+      )}
+
       {/* URL Input Dialog */}
       {showUrlDialog && (
-        <div style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: "rgba(0, 0, 0, 0.5)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 1000
-        }}>
-          <div style={{
-            backgroundColor: "white",
-            padding: 24,
-            borderRadius: 8,
-            minWidth: 400,
-            maxWidth: 500
-          }}>
-            <h3 style={{ marginTop: 0, color: "#333" }}>Enter JunctionRelay Local Server URL</h3>
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "white",
+              color: "#111",
+              padding: 24,
+              borderRadius: 8,
+              minWidth: 400,
+              maxWidth: 500,
+              boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
+            }}
+          >
+            <h3 style={{ marginTop: 0 }}>Enter JunctionRelay Local Server URL</h3>
             <input
               type="text"
               value={urlInput}
@@ -267,7 +258,7 @@ export default function App() {
                 border: "1px solid #ccc",
                 borderRadius: 4,
                 marginBottom: 16,
-                boxSizing: "border-box"
+                boxSizing: "border-box",
               }}
               autoFocus
               onKeyDown={(e) => {
@@ -284,7 +275,7 @@ export default function App() {
                   backgroundColor: "#f5f5f5",
                   border: "1px solid #ccc",
                   borderRadius: 4,
-                  color: "#333"
+                  color: "#333",
                 }}
               >
                 Cancel
@@ -297,7 +288,7 @@ export default function App() {
                   backgroundColor: "#007acc",
                   border: "1px solid #007acc",
                   borderRadius: 4,
-                  color: "white"
+                  color: "white",
                 }}
               >
                 Open
@@ -306,6 +297,9 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Toast */}
+      {toast && <Toast message={toast.msg} type={toast.type} />}
     </div>
   );
 }

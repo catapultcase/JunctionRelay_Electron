@@ -1,0 +1,12 @@
+Remove-Item -Recurse -Force dist, dist-electron   
+
+npm ci
+npm run build:pi
+
+npm ci ; npm run build:pi
+
+
+npm ci
+npm run build:windows
+
+npm ci ; npm run build:windows
