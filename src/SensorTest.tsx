@@ -4,13 +4,11 @@ import { useRive } from '@rive-app/react-canvas'
 export default function SensorTest() {
   // Resolve Rive file for both dev (http) and prod (file://)
   const riveSrc = useMemo(() => {
-    // In dev, Vite serves from http://... so absolute works
     if (import.meta.env.DEV) return '/jr.riv'
-    // In prod, index.html is file://.../dist/index.html; use relative
     return new URL('jr.riv', window.location.href).toString()
   }, [])
 
-  const { RiveComponent, rive } = useRive({
+  const { RiveComponent } = useRive({
     src: riveSrc,
     autoplay: true,
     onLoad: () => {
@@ -21,39 +19,22 @@ export default function SensorTest() {
     },
   })
 
-  console.log('🔍 SensorTest rendering on Pi; rive instance:', rive)
-
   return (
     <div
       style={{
-        width: '400px',
-        height: '1280px',
-        backgroundColor: '#ff0000',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: 'white',
-        fontSize: '16px',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        margin: 0,
+        padding: 0,
+        backgroundColor: '#000',   // black background
+        overflow: 'hidden',        // disable scrollbars
+        cursor: 'none',            // hide cursor
       }}
     >
-      <div style={{ marginBottom: 20, textAlign: 'center' }}>
-        <div>🎨 Rive Debug Info</div>
-        <div>Rive Loaded: {rive ? 'YES' : 'NO'}</div>
-        <div>Canvas Renderer: ACTIVE</div>
-        <div style={{ fontSize: 12, opacity: 0.8 }}>src: {riveSrc}</div>
-      </div>
-
-      <div
-        style={{
-          width: '100%',
-          height: '80%',
-          border: '2px solid white',
-          backgroundColor: '#000',
-        }}
-      >
-        <RiveComponent style={{ width: '100%', height: '100%' }} />
-      </div>
+      <RiveComponent style={{ width: '100%', height: '100%' }} />
     </div>
   )
 }

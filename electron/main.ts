@@ -84,18 +84,18 @@ ipcMain.on('open-visualization', (event) => {
   console.log('Received open-visualization request')
   try {
     kioskWindow = new BrowserWindow({
-      width: 400,
-      height: 1280,
+      fullscreen: true,          // ✅ fullscreen mode, hides taskbar
       frame: false,
       alwaysOnTop: true,
       resizable: false,
+      skipTaskbar: true,         // don’t show in taskbar
       webPreferences: {
         preload: path.join(__dirname, 'preload.mjs'),
         contextIsolation: true,
         nodeIntegration: false,
         webSecurity: false,
       },
-      show: false, // Don't show until ready
+      show: false // Don't show until ready
     })
 
     kioskWindow.on('closed', () => {
