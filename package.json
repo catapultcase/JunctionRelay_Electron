@@ -43,27 +43,18 @@
       "output": "dist",
       "buildResources": "build"
     },
-    "files": [
+      "files": [
       "dist/**/*",
       "dist-electron/**/*",
       "node_modules/**/*",
       "public/**/*"
     ],
     "linux": {
-      "target": [
-        {
-          "target": "tar.gz",
-          "arch": ["arm64", "armv7l"]
-        },
-        {
-          "target": "AppImage",
-          "arch": ["arm64", "armv7l"]
-        }
-      ],
-      "category": "Utility",
-      "icon": "public/icon.png"
+      "target": "tar.gz",
+      "category": "Utility"
     },
     "win": {
+
       "target": "nsis",
       "icon": "public/icon.ico"
     },

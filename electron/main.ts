@@ -4,6 +4,13 @@ import path from 'node:path'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// Add GPU flags for Raspberry Pi compatibility - MUST be before app.whenReady()
+app.commandLine.appendSwitch('disable-gpu')
+app.commandLine.appendSwitch('disable-gpu-compositing')
+app.commandLine.appendSwitch('disable-gpu-rasterization')
+app.commandLine.appendSwitch('disable-gpu-sandbox')
+app.commandLine.appendSwitch('disable-software-rasterizer')
+
 // The built directory structure
 //
 // ├─┬─┬ dist
@@ -78,8 +85,10 @@ ipcMain.on('open-visualization', (event) => {
       webPreferences: {
         preload: path.join(__dirname, 'preload.mjs'),
         contextIsolation: true,
-        nodeIntegration: false
+        nodeIntegration: false,
+        webSecurity: false
       },
+      show: false // Don't show until ready
     })
 
     // Handle when kiosk window is closed manually
@@ -88,6 +97,13 @@ ipcMain.on('open-visualization', (event) => {
       // Notify main window that kiosk was closed
       if (win && !win.isDestroyed()) {
         win.webContents.send('visualization-closed')
+      }
+    })
+
+    // Show window when ready
+    kioskWindow.once('ready-to-show', () => {
+      if (kioskWindow) {
+        kioskWindow.show()
       }
     })
 
