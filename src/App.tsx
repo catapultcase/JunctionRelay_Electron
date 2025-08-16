@@ -1,15 +1,7 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import SensorTest from "./SensorTest";
 
-declare global {
-  interface Window {
-    ipcRenderer?: {
-      send: (channel: string, ...args: any[]) => void;
-      on: (channel: string, listener: (event: any, ...args: any[]) => void) => void;
-      off: (channel: string, listener: (...args: any[]) => void) => void;
-    };
-  }
-}
+// Use existing Window interface from electron-env.d.ts
 
 export default function App() {
   const [showUrlDialog, setShowUrlDialog] = useState(false);

@@ -1,9 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
-import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
-const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // The built directory structure
@@ -25,6 +23,7 @@ export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST
 
 let win: BrowserWindow | null
+let kioskWindow: BrowserWindow | null = null
 
 function createWindow() {
   win = new BrowserWindow({
@@ -32,7 +31,6 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
-      enableRemoteModule: false,
       nodeIntegration: false
     },
   })
@@ -57,7 +55,7 @@ function createWindow() {
 }
 
 // IPC handler for opening external URLs
-ipcMain.on('open-external', (event, url) => {
+ipcMain.on('open-external', (_, url) => {
   console.log('Received open-external request for URL:', url)
   try {
     shell.openExternal(url)
@@ -66,8 +64,6 @@ ipcMain.on('open-external', (event, url) => {
     console.error('Error opening external URL:', error)
   }
 })
-
-let kioskWindow = null
 
 // IPC handler for opening visualization kiosk
 ipcMain.on('open-visualization', (event) => {
@@ -82,7 +78,6 @@ ipcMain.on('open-visualization', (event) => {
       webPreferences: {
         preload: path.join(__dirname, 'preload.mjs'),
         contextIsolation: true,
-        enableRemoteModule: false,
         nodeIntegration: false
       },
     })
@@ -97,10 +92,12 @@ ipcMain.on('open-visualization', (event) => {
     })
 
     // Add keyboard shortcut to close visualization (Escape key)
-    kioskWindow.webContents.on('before-input-event', (event, input) => {
+    kioskWindow.webContents.on('before-input-event', (_, input) => {
       if (input.key === 'Escape' && input.type === 'keyDown') {
         console.log('Escape key pressed - closing visualization')
-        kioskWindow.close()
+        if (kioskWindow) {
+          kioskWindow.close()
+        }
       }
     })
 
@@ -134,7 +131,7 @@ ipcMain.on('close-visualization', (event) => {
 })
 
 // IPC handler for quitting the app
-ipcMain.on('quit-app', (event) => {
+ipcMain.on('quit-app', () => {
   console.log('Received quit-app request')
   app.quit()
 })

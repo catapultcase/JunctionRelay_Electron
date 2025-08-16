@@ -1,120 +1,74 @@
-import { ipcMain, shell, BrowserWindow, app } from "electron";
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
-createRequire(import.meta.url);
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-process.env.APP_ROOT = path.join(__dirname, "..");
-const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
-const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
-const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
-process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
-let win;
-function createWindow() {
-  win = new BrowserWindow({
-    icon: path.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
+import { ipcMain as a, shell as f, BrowserWindow as c, app as l } from "electron";
+import { fileURLToPath as w } from "node:url";
+import n from "node:path";
+const d = n.dirname(w(import.meta.url));
+process.env.APP_ROOT = n.join(d, "..");
+const s = process.env.VITE_DEV_SERVER_URL, m = n.join(process.env.APP_ROOT, "dist-electron"), p = n.join(process.env.APP_ROOT, "dist");
+process.env.VITE_PUBLIC = s ? n.join(process.env.APP_ROOT, "public") : p;
+let e, o = null;
+function u() {
+  e = new c({
+    icon: n.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
     webPreferences: {
-      preload: path.join(__dirname, "preload.mjs"),
-      contextIsolation: true,
-      enableRemoteModule: false,
-      nodeIntegration: false
+      preload: n.join(d, "preload.mjs"),
+      contextIsolation: !0,
+      nodeIntegration: !1
     }
-  });
-  if (VITE_DEV_SERVER_URL) {
-    win.webContents.openDevTools();
-  }
-  win.webContents.on("did-finish-load", () => {
-    console.log("Window finished loading");
-    win == null ? void 0 : win.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
-  });
-  if (VITE_DEV_SERVER_URL) {
-    win.loadURL(VITE_DEV_SERVER_URL);
-  } else {
-    win.loadFile(path.join(RENDERER_DIST, "index.html"));
-  }
+  }), s && e.webContents.openDevTools(), e.webContents.on("did-finish-load", () => {
+    console.log("Window finished loading"), e == null || e.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
+  }), s ? e.loadURL(s) : e.loadFile(n.join(p, "index.html"));
 }
-ipcMain.on("open-external", (event, url) => {
-  console.log("Received open-external request for URL:", url);
+a.on("open-external", (t, i) => {
+  console.log("Received open-external request for URL:", i);
   try {
-    shell.openExternal(url);
-    console.log("Successfully opened external URL:", url);
-  } catch (error) {
-    console.error("Error opening external URL:", error);
+    f.openExternal(i), console.log("Successfully opened external URL:", i);
+  } catch (r) {
+    console.error("Error opening external URL:", r);
   }
 });
-let kioskWindow = null;
-ipcMain.on("open-visualization", (event) => {
+a.on("open-visualization", (t) => {
   console.log("Received open-visualization request");
   try {
-    kioskWindow = new BrowserWindow({
+    o = new c({
       width: 400,
       height: 1280,
-      frame: false,
-      alwaysOnTop: true,
-      resizable: false,
+      frame: !1,
+      alwaysOnTop: !0,
+      resizable: !1,
       webPreferences: {
-        preload: path.join(__dirname, "preload.mjs"),
-        contextIsolation: true,
-        enableRemoteModule: false,
-        nodeIntegration: false
+        preload: n.join(d, "preload.mjs"),
+        contextIsolation: !0,
+        nodeIntegration: !1
       }
-    });
-    kioskWindow.on("closed", () => {
-      kioskWindow = null;
-      if (win && !win.isDestroyed()) {
-        win.webContents.send("visualization-closed");
-      }
-    });
-    kioskWindow.webContents.on("before-input-event", (event2, input) => {
-      if (input.key === "Escape" && input.type === "keyDown") {
-        console.log("Escape key pressed - closing visualization");
-        kioskWindow.close();
-      }
-    });
-    if (VITE_DEV_SERVER_URL) {
-      kioskWindow.loadURL(VITE_DEV_SERVER_URL + "?mode=visualization");
-    } else {
-      kioskWindow.loadFile(path.join(RENDERER_DIST, "index.html"), {
-        query: { mode: "visualization" }
-      });
-    }
-    event.sender.send("visualization-opened");
-    console.log("Visualization kiosk window opened (Press ESC to close)");
-  } catch (error) {
-    console.error("Error opening visualization kiosk:", error);
+    }), o.on("closed", () => {
+      o = null, e && !e.isDestroyed() && e.webContents.send("visualization-closed");
+    }), o.webContents.on("before-input-event", (i, r) => {
+      r.key === "Escape" && r.type === "keyDown" && (console.log("Escape key pressed - closing visualization"), o && o.close());
+    }), s ? o.loadURL(s + "?mode=visualization") : o.loadFile(n.join(p, "index.html"), {
+      query: { mode: "visualization" }
+    }), t.sender.send("visualization-opened"), console.log("Visualization kiosk window opened (Press ESC to close)");
+  } catch (i) {
+    console.error("Error opening visualization kiosk:", i);
   }
 });
-ipcMain.on("close-visualization", (event) => {
-  console.log("Received close-visualization request");
-  if (kioskWindow && !kioskWindow.isDestroyed()) {
-    kioskWindow.close();
-    kioskWindow = null;
-    event.sender.send("visualization-closed");
-    console.log("Visualization kiosk window closed");
-  }
+a.on("close-visualization", (t) => {
+  console.log("Received close-visualization request"), o && !o.isDestroyed() && (o.close(), o = null, t.sender.send("visualization-closed"), console.log("Visualization kiosk window closed"));
 });
-ipcMain.on("quit-app", (event) => {
-  console.log("Received quit-app request");
-  app.quit();
+a.on("quit-app", () => {
+  console.log("Received quit-app request"), l.quit();
 });
 console.log("IPC handler registered for open-external");
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-    win = null;
-  }
+l.on("window-all-closed", () => {
+  process.platform !== "darwin" && (l.quit(), e = null);
 });
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
+l.on("activate", () => {
+  c.getAllWindows().length === 0 && u();
 });
-app.whenReady().then(() => {
-  console.log("App is ready, creating window");
-  createWindow();
+l.whenReady().then(() => {
+  console.log("App is ready, creating window"), u();
 });
 export {
-  MAIN_DIST,
-  RENDERER_DIST,
-  VITE_DEV_SERVER_URL
+  m as MAIN_DIST,
+  p as RENDERER_DIST,
+  s as VITE_DEV_SERVER_URL
 };
