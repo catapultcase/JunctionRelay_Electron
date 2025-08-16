@@ -94,6 +94,31 @@ function createWindow() {
   }
 }
 
+// Process sensor data from WebSocket messages
+function processSensorData(doc: Record<string, any>) {
+  if (doc.type === "sensor" && doc.sensors) {
+    try {
+      // Get the first sensor in the payload
+      const firstSensorKey = Object.keys(doc.sensors)[0];
+      if (firstSensorKey && doc.sensors[firstSensorKey] && doc.sensors[firstSensorKey][0]) {
+        const sensorValue = parseInt(doc.sensors[firstSensorKey][0].Value, 10);
+        const sensorUnit = doc.sensors[firstSensorKey][0].Unit || "";
+        
+        // Forward to visualization window
+        if (kioskWindow && !kioskWindow.isDestroyed()) {
+          kioskWindow.webContents.send("sensor-data", {
+            value: sensorValue,
+            unit: sensorUnit,
+            sensorName: firstSensorKey
+          });
+        }
+      }
+    } catch (error) {
+      console.error("[main] Error processing sensor data:", error);
+    }
+  }
+}
+
 // WebSocket server functions
 async function startWebSocketServer() {
   console.log("[main] startWebSocketServer() called");
@@ -107,7 +132,10 @@ async function startWebSocketServer() {
     console.log("[main] Creating Helper_WebSocket on :81");
     jrWs = new Helper_WebSocket({
       port: 81,
-      onDocument: (doc: Record<string, any>) => win?.webContents.send("display:json", doc),
+      onDocument: (doc: Record<string, any>) => {
+        win?.webContents.send("display:json", doc);
+        processSensorData(doc); // Process sensor data for visualization
+      },
       onProtocol: (doc: Record<string, any>) => win?.webContents.send("display:protocol", doc),
       onSystem:   (doc: Record<string, any>) => win?.webContents.send("display:system", doc),
     });
