@@ -4,7 +4,7 @@ import i from "node:path";
 const d = i.dirname(f(import.meta.url));
 process.platform === "linux" && process.arch.startsWith("arm") && (n.disableHardwareAcceleration(), n.commandLine.appendSwitch("disable-gpu"), n.commandLine.appendSwitch("disable-gpu-compositing"), n.commandLine.appendSwitch("disable-gpu-rasterization"), n.commandLine.appendSwitch("disable-gpu-sandbox"));
 process.env.APP_ROOT = i.join(d, "..");
-const l = process.env.VITE_DEV_SERVER_URL, h = i.join(process.env.APP_ROOT, "dist-electron"), p = i.join(process.env.APP_ROOT, "dist");
+const l = process.env.VITE_DEV_SERVER_URL, R = i.join(process.env.APP_ROOT, "dist-electron"), p = i.join(process.env.APP_ROOT, "dist");
 process.env.VITE_PUBLIC = l ? i.join(process.env.APP_ROOT, "public") : p;
 let o, e = null;
 function u() {
@@ -19,23 +19,25 @@ function u() {
     console.log("Window finished loading"), o == null || o.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
   }), l ? o.loadURL(l) : o.loadFile(i.join(p, "index.html"));
 }
-r.on("open-external", (t, s) => {
+r.on("open-external", (a, s) => {
   console.log("Received open-external request for URL:", s);
   try {
     w.openExternal(s), console.log("Successfully opened external URL:", s);
-  } catch (a) {
-    console.error("Error opening external URL:", a);
+  } catch (t) {
+    console.error("Error opening external URL:", t);
   }
 });
-r.on("open-visualization", (t) => {
+r.on("open-visualization", (a) => {
   console.log("Received open-visualization request");
   try {
     e = new c({
-      width: 400,
-      height: 1280,
+      fullscreen: !0,
+      // ✅ fullscreen mode, hides taskbar
       frame: !1,
       alwaysOnTop: !0,
       resizable: !1,
+      skipTaskbar: !0,
+      // don’t show in taskbar
       webPreferences: {
         preload: i.join(d, "preload.mjs"),
         contextIsolation: !0,
@@ -48,17 +50,17 @@ r.on("open-visualization", (t) => {
       e = null, o && !o.isDestroyed() && o.webContents.send("visualization-closed");
     }), e.once("ready-to-show", () => {
       e && e.show();
-    }), e.webContents.on("before-input-event", (s, a) => {
-      a.key === "Escape" && a.type === "keyDown" && (console.log("Escape key pressed - closing visualization"), e && e.close());
+    }), e.webContents.on("before-input-event", (s, t) => {
+      t.key === "Escape" && t.type === "keyDown" && (console.log("Escape key pressed - closing visualization"), e && e.close());
     }), l ? e.loadURL(l + "?mode=visualization") : e.loadFile(i.join(p, "index.html"), {
       query: { mode: "visualization" }
-    }), t.sender.send("visualization-opened"), console.log("Visualization kiosk window opened (Press ESC to close)");
+    }), a.sender.send("visualization-opened"), console.log("Visualization kiosk window opened (Press ESC to close)");
   } catch (s) {
     console.error("Error opening visualization kiosk:", s);
   }
 });
-r.on("close-visualization", (t) => {
-  console.log("Received close-visualization request"), e && !e.isDestroyed() && (e.close(), e = null, t.sender.send("visualization-closed"), console.log("Visualization kiosk window closed"));
+r.on("close-visualization", (a) => {
+  console.log("Received close-visualization request"), e && !e.isDestroyed() && (e.close(), e = null, a.sender.send("visualization-closed"), console.log("Visualization kiosk window closed"));
 });
 r.on("quit-app", () => {
   console.log("Received quit-app request"), n.quit();
@@ -74,7 +76,7 @@ n.whenReady().then(() => {
   console.log("App is ready, creating window"), u();
 });
 export {
-  h as MAIN_DIST,
+  R as MAIN_DIST,
   p as RENDERER_DIST,
   l as VITE_DEV_SERVER_URL
 };
