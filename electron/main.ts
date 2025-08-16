@@ -2,8 +2,13 @@ import { app, BrowserWindow, ipcMain, shell, session } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
+import { Helper_WebSocket } from "../src/main/Helper_WebSocket";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+// WebSocket server instance
+let jrWs: Helper_WebSocket | null = null;
+let mdnsService: any = null;
 
 // ---------- Version helper: read from package.json (fallback to app.getVersion) ----------
 function getAppVersion(): string {
@@ -89,6 +94,110 @@ function createWindow() {
   }
 }
 
+// WebSocket server functions
+async function startWebSocketServer() {
+  console.log("[main] startWebSocketServer() called");
+  if (jrWs?.isRunning()) {
+    console.log("[main] Helper_WS already running on :81");
+    win?.webContents.send("ws-status", { ok: true, message: "WebSocket already running." });
+    return;
+  }
+
+  try {
+    console.log("[main] Creating Helper_WebSocket on :81");
+    jrWs = new Helper_WebSocket({
+      port: 81,
+      onDocument: (doc: Record<string, any>) => win?.webContents.send("display:json", doc),
+      onProtocol: (doc: Record<string, any>) => win?.webContents.send("display:protocol", doc),
+      onSystem:   (doc: Record<string, any>) => win?.webContents.send("display:system", doc),
+    });
+
+    await jrWs.start();
+    console.log("[main] ✅ Helper_WebSocket started on :81");
+    
+    // Start mDNS service discovery
+    await startMDNSService();
+    
+    win?.webContents.send("ws-status", { ok: true, message: "WebSocket server started on :81" });
+  } catch (helperErr) {
+    console.error("[main] Helper_WebSocket failed:", helperErr);
+    win?.webContents.send("ws-status", { ok: false, message: `Failed to start WebSocket: ${String(helperErr)}` });
+  }
+}
+
+async function startMDNSService() {
+  try {
+    // Import bonjour-service directly since it's installed
+    const { Bonjour } = await import('bonjour-service');
+    const instance = new Bonjour();
+    
+    const mac = Helper_WebSocket.getFormattedMacAddress();
+    const deviceName = `JunctionRelay_Virtual_${mac}`;
+    
+    // Try the exact format that Tmds.MDns expects
+    const httpService = instance.publish({
+      name: deviceName,
+      type: 'junctionrelay',  // Try without underscores first
+      protocol: 'tcp',        // Separate protocol field
+      port: 80,
+      txt: {
+        type: 'virtual_device',
+        firmware: getAppVersion(),
+        platform: 'electron',
+        mac: mac
+      }
+    });
+    
+    // Also try advertising WebSocket service
+    const wsService = instance.publish({
+      name: `${deviceName}_WS`,
+      type: 'junctionrelay-ws',
+      protocol: 'tcp',
+      port: 81,
+      txt: {
+        type: 'virtual_device_ws',
+        firmware: getAppVersion(),
+        platform: 'electron',
+        mac: mac
+      }
+    });
+    
+    mdnsService = { instance, httpService, wsService };
+    console.log(`[main] ✅ mDNS services started - device discoverable as ${deviceName}`);
+    console.log(`[main] Advertising: junctionrelay.tcp (port 80) and junctionrelay-ws.tcp (port 81)`);
+    
+  } catch (error) {
+    console.log("[main] mDNS service failed to start:", (error as Error).message);
+    console.log("[main] Device running without network discovery");
+  }
+}
+
+function stopWebSocketServer() {
+  console.log("[main] stopWebSocketServer() called");
+  
+  // Stop mDNS services
+  if (mdnsService) {
+    try {
+      if (mdnsService.instance) {
+        mdnsService.instance.destroy();
+      }
+      mdnsService = null;
+      console.log("[main] mDNS services stopped");
+    } catch (e) {
+      console.error("[main] Error stopping mDNS:", e);
+    }
+  }
+  
+  if (jrWs) {
+    try { jrWs.stop(); } catch (e) { console.error("[main] jrWs.stop error:", e); }
+    jrWs = null;
+    console.log("[main] Helper_WS stopped");
+    win?.webContents.send("ws-status", { ok: true, message: "WebSocket server stopped." });
+    return;
+  }
+  win?.webContents.send("ws-status", { ok: true, message: "WebSocket not running." });
+}
+
 // IPC: open external URL
 ipcMain.on('open-external', (_, url) => {
   try {
@@ -98,8 +207,21 @@ ipcMain.on('open-external', (_, url) => {
   }
 })
 
-// ✅ IPC: app version for renderer, read from package.json
+// IPC: app version for renderer, read from package.json
 ipcMain.handle('get-app-version', () => getAppVersion())
+
+// WebSocket IPC handlers
+ipcMain.on("start-ws", () => {
+  startWebSocketServer();
+});
+
+ipcMain.on("stop-ws", () => {
+  stopWebSocketServer();
+});
+
+ipcMain.handle("ws-stats", () => {
+  try { return jrWs?.getStats?.() ?? null; } catch { return null; }
+});
 
 // IPC: open kiosk visualization
 ipcMain.on('open-visualization', (event) => {
@@ -160,11 +282,15 @@ ipcMain.on('close-visualization', (event) => {
 })
 
 // IPC: quit app
-ipcMain.on('quit-app', () => app.quit())
+ipcMain.on('quit-app', () => {
+  try { stopWebSocketServer(); } catch {}
+  app.quit()
+})
 
 // Quit behavior
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    try { stopWebSocketServer(); } catch {}
     app.quit()
     win = null
   }
