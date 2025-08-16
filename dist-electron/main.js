@@ -1,74 +1,80 @@
-import { ipcMain as a, shell as f, BrowserWindow as c, app as l } from "electron";
-import { fileURLToPath as w } from "node:url";
-import n from "node:path";
-const d = n.dirname(w(import.meta.url));
-process.env.APP_ROOT = n.join(d, "..");
-const s = process.env.VITE_DEV_SERVER_URL, m = n.join(process.env.APP_ROOT, "dist-electron"), p = n.join(process.env.APP_ROOT, "dist");
-process.env.VITE_PUBLIC = s ? n.join(process.env.APP_ROOT, "public") : p;
-let e, o = null;
+import { app as n, ipcMain as r, shell as w, BrowserWindow as c } from "electron";
+import { fileURLToPath as f } from "node:url";
+import i from "node:path";
+const d = i.dirname(f(import.meta.url));
+process.platform === "linux" && process.arch.startsWith("arm") && (n.disableHardwareAcceleration(), n.commandLine.appendSwitch("disable-gpu"), n.commandLine.appendSwitch("disable-gpu-compositing"), n.commandLine.appendSwitch("disable-gpu-rasterization"), n.commandLine.appendSwitch("disable-gpu-sandbox"));
+process.env.APP_ROOT = i.join(d, "..");
+const l = process.env.VITE_DEV_SERVER_URL, h = i.join(process.env.APP_ROOT, "dist-electron"), p = i.join(process.env.APP_ROOT, "dist");
+process.env.VITE_PUBLIC = l ? i.join(process.env.APP_ROOT, "public") : p;
+let o, e = null;
 function u() {
-  e = new c({
-    icon: n.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
+  o = new c({
+    icon: i.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
     webPreferences: {
-      preload: n.join(d, "preload.mjs"),
+      preload: i.join(d, "preload.mjs"),
       contextIsolation: !0,
       nodeIntegration: !1
     }
-  }), s && e.webContents.openDevTools(), e.webContents.on("did-finish-load", () => {
-    console.log("Window finished loading"), e == null || e.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
-  }), s ? e.loadURL(s) : e.loadFile(n.join(p, "index.html"));
+  }), l && o.webContents.openDevTools(), o.webContents.on("did-finish-load", () => {
+    console.log("Window finished loading"), o == null || o.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
+  }), l ? o.loadURL(l) : o.loadFile(i.join(p, "index.html"));
 }
-a.on("open-external", (t, i) => {
-  console.log("Received open-external request for URL:", i);
+r.on("open-external", (t, s) => {
+  console.log("Received open-external request for URL:", s);
   try {
-    f.openExternal(i), console.log("Successfully opened external URL:", i);
-  } catch (r) {
-    console.error("Error opening external URL:", r);
+    w.openExternal(s), console.log("Successfully opened external URL:", s);
+  } catch (a) {
+    console.error("Error opening external URL:", a);
   }
 });
-a.on("open-visualization", (t) => {
+r.on("open-visualization", (t) => {
   console.log("Received open-visualization request");
   try {
-    o = new c({
+    e = new c({
       width: 400,
       height: 1280,
       frame: !1,
       alwaysOnTop: !0,
       resizable: !1,
       webPreferences: {
-        preload: n.join(d, "preload.mjs"),
+        preload: i.join(d, "preload.mjs"),
         contextIsolation: !0,
-        nodeIntegration: !1
-      }
-    }), o.on("closed", () => {
-      o = null, e && !e.isDestroyed() && e.webContents.send("visualization-closed");
-    }), o.webContents.on("before-input-event", (i, r) => {
-      r.key === "Escape" && r.type === "keyDown" && (console.log("Escape key pressed - closing visualization"), o && o.close());
-    }), s ? o.loadURL(s + "?mode=visualization") : o.loadFile(n.join(p, "index.html"), {
+        nodeIntegration: !1,
+        webSecurity: !1
+      },
+      show: !1
+      // Don't show until ready
+    }), e.on("closed", () => {
+      e = null, o && !o.isDestroyed() && o.webContents.send("visualization-closed");
+    }), e.once("ready-to-show", () => {
+      e && e.show();
+    }), e.webContents.on("before-input-event", (s, a) => {
+      a.key === "Escape" && a.type === "keyDown" && (console.log("Escape key pressed - closing visualization"), e && e.close());
+    }), l ? e.loadURL(l + "?mode=visualization") : e.loadFile(i.join(p, "index.html"), {
       query: { mode: "visualization" }
     }), t.sender.send("visualization-opened"), console.log("Visualization kiosk window opened (Press ESC to close)");
-  } catch (i) {
-    console.error("Error opening visualization kiosk:", i);
+  } catch (s) {
+    console.error("Error opening visualization kiosk:", s);
   }
 });
-a.on("close-visualization", (t) => {
-  console.log("Received close-visualization request"), o && !o.isDestroyed() && (o.close(), o = null, t.sender.send("visualization-closed"), console.log("Visualization kiosk window closed"));
+r.on("close-visualization", (t) => {
+  console.log("Received close-visualization request"), e && !e.isDestroyed() && (e.close(), e = null, t.sender.send("visualization-closed"), console.log("Visualization kiosk window closed"));
 });
-a.on("quit-app", () => {
-  console.log("Received quit-app request"), l.quit();
+r.on("quit-app", () => {
+  console.log("Received quit-app request"), n.quit();
 });
 console.log("IPC handler registered for open-external");
-l.on("window-all-closed", () => {
-  process.platform !== "darwin" && (l.quit(), e = null);
+n.on("window-all-closed", () => {
+  process.platform !== "darwin" && (n.quit(), o = null);
 });
-l.on("activate", () => {
+n.on("activate", () => {
   c.getAllWindows().length === 0 && u();
 });
-l.whenReady().then(() => {
+n.whenReady().then(() => {
   console.log("App is ready, creating window"), u();
 });
 export {
-  m as MAIN_DIST,
+  h as MAIN_DIST,
   p as RENDERER_DIST,
-  s as VITE_DEV_SERVER_URL
+  l as VITE_DEV_SERVER_URL
 };
