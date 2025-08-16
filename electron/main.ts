@@ -1,34 +1,62 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, session } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import fs from 'node:fs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// ---------- Version helper: read from package.json (fallback to app.getVersion) ----------
+function getAppVersion(): string {
+  try {
+    const appRoot = process.env.APP_ROOT || path.join(__dirname, '..')
+    const pkgPath = path.join(appRoot, 'package.json')
+    const pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
+    if (pkgJson?.version && typeof pkgJson.version === 'string') return pkgJson.version
+  } catch (e) {
+    console.warn('[Electron] Failed to read package.json version, falling back:', e)
+  }
+  return app.getVersion()
+}
+
 // Raspberry Pi (Linux/ARM): force software rendering (Canvas-friendly)
-// - disableHardwareAcceleration(): turns off GPU acceleration globally
-// - disable-gpu* switches: prevent Chromium from trying EGL/GBM
-// IMPORTANT: do NOT use 'disable-software-rasterizer' — we want SwiftShader.
-if (process.platform === 'linux' && process.arch.startsWith('arm')) {
+// Allow opt-in GPU with env JR_GPU=1
+const wantGPU = process.env.JR_GPU === '1'
+if (process.platform === 'linux' && process.arch.startsWith('arm') && !wantGPU) {
   app.disableHardwareAcceleration()
   app.commandLine.appendSwitch('disable-gpu')
   app.commandLine.appendSwitch('disable-gpu-compositing')
   app.commandLine.appendSwitch('disable-gpu-rasterization')
   app.commandLine.appendSwitch('disable-gpu-sandbox')
-  // app.commandLine.appendSwitch('disable-software-rasterizer') // ❌ do NOT enable
+  console.log('[Electron] GPU disabled (Canvas mode)')
 }
 
-// The built directory structure
-//
-// ├─┬─┬ dist
-// │ │ └── index.html
-// │ │
-// │ ├─┬ dist-electron
-// │ │ ├── main.js
-// │ │ └── preload.mjs
-// │
-process.env.APP_ROOT = path.join(__dirname, '..')
+// One-time cache clear (enable with JR_CLEAR_CACHE=1)
+if (process.env.JR_CLEAR_CACHE === '1') {
+  app.whenReady().then(async () => {
+    try {
+      const s = session.defaultSession
+      await s.clearCache()
+      await s.clearStorageData({
+        storages: [
+          'serviceworkers',
+          'cachestorage',
+          'localstorage',
+          'indexdb',
+          'websql',
+          'filesystem',
+          'cookies',
+          'shadercache',
+        ],
+      })
+      console.log('[Electron] Cache cleared on startup')
+    } catch (e) {
+      console.warn('[Electron] Cache clear failed:', e)
+    }
+  })
+}
 
-// 🚧 Use ['ENV_NAME'] avoid vite:define plugin - Vite@2.x
+// Paths
+process.env.APP_ROOT = path.join(__dirname, '..')
 export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron')
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
@@ -47,80 +75,68 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      webSecurity: true,
     },
   })
 
-  // Open DevTools in development
-  if (VITE_DEV_SERVER_URL) {
+  if (app.isPackaged) {
+    win.loadFile(path.join(RENDERER_DIST, 'index.html'))
+  } else if (VITE_DEV_SERVER_URL) {
     win.webContents.openDevTools()
-  }
-
-  // Test active push message to Renderer-process.
-  win.webContents.on('did-finish-load', () => {
-    console.log('Window finished loading')
-    win?.webContents.send('main-process-message', new Date().toLocaleString())
-  })
-
-  if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
     win.loadFile(path.join(RENDERER_DIST, 'index.html'))
   }
 }
 
-// IPC handler for opening external URLs
+// IPC: open external URL
 ipcMain.on('open-external', (_, url) => {
-  console.log('Received open-external request for URL:', url)
   try {
     shell.openExternal(url)
-    console.log('Successfully opened external URL:', url)
   } catch (error) {
     console.error('Error opening external URL:', error)
   }
 })
 
-// IPC handler for opening visualization kiosk
+// ✅ IPC: app version for renderer, read from package.json
+ipcMain.handle('get-app-version', () => getAppVersion())
+
+// IPC: open kiosk visualization
 ipcMain.on('open-visualization', (event) => {
-  console.log('Received open-visualization request')
   try {
     kioskWindow = new BrowserWindow({
-      fullscreen: true,          // ✅ fullscreen mode, hides taskbar
+      fullscreen: true,
       frame: false,
       alwaysOnTop: true,
+      skipTaskbar: true,
       resizable: false,
-      skipTaskbar: true,         // don’t show in taskbar
       webPreferences: {
         preload: path.join(__dirname, 'preload.mjs'),
         contextIsolation: true,
         nodeIntegration: false,
-        webSecurity: false,
+        webSecurity: true,
       },
-      show: false // Don't show until ready
+      show: false,
     })
+
+    kioskWindow.setAlwaysOnTop(true, 'screen-saver')
 
     kioskWindow.on('closed', () => {
       kioskWindow = null
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('visualization-closed')
-      }
+      if (win && !win.isDestroyed()) win.webContents.send('visualization-closed')
     })
 
-    kioskWindow.once('ready-to-show', () => {
-      if (kioskWindow) {
-        kioskWindow.show()
-      }
-    })
+    kioskWindow.once('ready-to-show', () => kioskWindow?.show())
 
     kioskWindow.webContents.on('before-input-event', (_, input) => {
-      if (input.key === 'Escape' && input.type === 'keyDown') {
-        console.log('Escape key pressed - closing visualization')
-        if (kioskWindow) {
-          kioskWindow.close()
-        }
-      }
+      if (input.key === 'Escape' && input.type === 'keyDown') kioskWindow?.close()
     })
 
-    if (VITE_DEV_SERVER_URL) {
+    if (app.isPackaged) {
+      kioskWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), {
+        query: { mode: 'visualization' },
+      })
+    } else if (VITE_DEV_SERVER_URL) {
       kioskWindow.loadURL(VITE_DEV_SERVER_URL + '?mode=visualization')
     } else {
       kioskWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), {
@@ -129,32 +145,24 @@ ipcMain.on('open-visualization', (event) => {
     }
 
     event.sender.send('visualization-opened')
-    console.log('Visualization kiosk window opened (Press ESC to close)')
   } catch (error) {
     console.error('Error opening visualization kiosk:', error)
   }
 })
 
-// IPC handler for closing visualization kiosk
+// IPC: close kiosk
 ipcMain.on('close-visualization', (event) => {
-  console.log('Received close-visualization request')
   if (kioskWindow && !kioskWindow.isDestroyed()) {
     kioskWindow.close()
     kioskWindow = null
     event.sender.send('visualization-closed')
-    console.log('Visualization kiosk window closed')
   }
 })
 
-// IPC handler for quitting the app
-ipcMain.on('quit-app', () => {
-  console.log('Received quit-app request')
-  app.quit()
-})
+// IPC: quit app
+ipcMain.on('quit-app', () => app.quit())
 
-console.log('IPC handler registered for open-external')
-
-// Quit when all windows are closed, except on macOS
+// Quit behavior
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
@@ -163,12 +171,9 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow()
-  }
+  if (BrowserWindow.getAllWindows().length === 0) createWindow()
 })
 
 app.whenReady().then(() => {
-  console.log('App is ready, creating window')
   createWindow()
 })

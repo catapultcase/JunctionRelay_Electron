@@ -1,82 +1,104 @@
-import { app as n, ipcMain as r, shell as w, BrowserWindow as c } from "electron";
-import { fileURLToPath as f } from "node:url";
-import i from "node:path";
-const d = i.dirname(f(import.meta.url));
-process.platform === "linux" && process.arch.startsWith("arm") && (n.disableHardwareAcceleration(), n.commandLine.appendSwitch("disable-gpu"), n.commandLine.appendSwitch("disable-gpu-compositing"), n.commandLine.appendSwitch("disable-gpu-rasterization"), n.commandLine.appendSwitch("disable-gpu-sandbox"));
-process.env.APP_ROOT = i.join(d, "..");
-const l = process.env.VITE_DEV_SERVER_URL, R = i.join(process.env.APP_ROOT, "dist-electron"), p = i.join(process.env.APP_ROOT, "dist");
-process.env.VITE_PUBLIC = l ? i.join(process.env.APP_ROOT, "public") : p;
-let o, e = null;
-function u() {
-  o = new c({
-    icon: i.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
-    webPreferences: {
-      preload: i.join(d, "preload.mjs"),
-      contextIsolation: !0,
-      nodeIntegration: !1
-    }
-  }), l && o.webContents.openDevTools(), o.webContents.on("did-finish-load", () => {
-    console.log("Window finished loading"), o == null || o.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
-  }), l ? o.loadURL(l) : o.loadFile(i.join(p, "index.html"));
-}
-r.on("open-external", (a, s) => {
-  console.log("Received open-external request for URL:", s);
+import { app as o, session as f, ipcMain as c, shell as m, BrowserWindow as p } from "electron";
+import { fileURLToPath as w } from "node:url";
+import n from "node:path";
+import h from "node:fs";
+const d = n.dirname(w(import.meta.url));
+function v() {
   try {
-    w.openExternal(s), console.log("Successfully opened external URL:", s);
-  } catch (t) {
-    console.error("Error opening external URL:", t);
+    const s = process.env.APP_ROOT || n.join(d, ".."), r = n.join(s, "package.json"), a = JSON.parse(h.readFileSync(r, "utf8"));
+    if (a != null && a.version && typeof a.version == "string") return a.version;
+  } catch (s) {
+    console.warn("[Electron] Failed to read package.json version, falling back:", s);
+  }
+  return o.getVersion();
+}
+const g = process.env.JR_GPU === "1";
+process.platform === "linux" && process.arch.startsWith("arm") && !g && (o.disableHardwareAcceleration(), o.commandLine.appendSwitch("disable-gpu"), o.commandLine.appendSwitch("disable-gpu-compositing"), o.commandLine.appendSwitch("disable-gpu-rasterization"), o.commandLine.appendSwitch("disable-gpu-sandbox"), console.log("[Electron] GPU disabled (Canvas mode)"));
+process.env.JR_CLEAR_CACHE === "1" && o.whenReady().then(async () => {
+  try {
+    const s = f.defaultSession;
+    await s.clearCache(), await s.clearStorageData({
+      storages: [
+        "serviceworkers",
+        "cachestorage",
+        "localstorage",
+        "indexdb",
+        "websql",
+        "filesystem",
+        "cookies",
+        "shadercache"
+      ]
+    }), console.log("[Electron] Cache cleared on startup");
+  } catch (s) {
+    console.warn("[Electron] Cache clear failed:", s);
   }
 });
-r.on("open-visualization", (a) => {
-  console.log("Received open-visualization request");
+process.env.APP_ROOT = n.join(d, "..");
+const t = process.env.VITE_DEV_SERVER_URL, b = n.join(process.env.APP_ROOT, "dist-electron"), l = n.join(process.env.APP_ROOT, "dist");
+process.env.VITE_PUBLIC = t ? n.join(process.env.APP_ROOT, "public") : l;
+let i, e = null;
+function u() {
+  i = new p({
+    icon: n.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
+    webPreferences: {
+      preload: n.join(d, "preload.mjs"),
+      contextIsolation: !0,
+      nodeIntegration: !1,
+      webSecurity: !0
+    }
+  }), o.isPackaged ? i.loadFile(n.join(l, "index.html")) : t ? (i.webContents.openDevTools(), i.loadURL(t)) : i.loadFile(n.join(l, "index.html"));
+}
+c.on("open-external", (s, r) => {
   try {
-    e = new c({
+    m.openExternal(r);
+  } catch (a) {
+    console.error("Error opening external URL:", a);
+  }
+});
+c.handle("get-app-version", () => v());
+c.on("open-visualization", (s) => {
+  try {
+    e = new p({
       fullscreen: !0,
-      // ✅ fullscreen mode, hides taskbar
       frame: !1,
       alwaysOnTop: !0,
-      resizable: !1,
       skipTaskbar: !0,
-      // don’t show in taskbar
+      resizable: !1,
       webPreferences: {
-        preload: i.join(d, "preload.mjs"),
+        preload: n.join(d, "preload.mjs"),
         contextIsolation: !0,
         nodeIntegration: !1,
-        webSecurity: !1
+        webSecurity: !0
       },
       show: !1
-      // Don't show until ready
-    }), e.on("closed", () => {
-      e = null, o && !o.isDestroyed() && o.webContents.send("visualization-closed");
-    }), e.once("ready-to-show", () => {
-      e && e.show();
-    }), e.webContents.on("before-input-event", (s, t) => {
-      t.key === "Escape" && t.type === "keyDown" && (console.log("Escape key pressed - closing visualization"), e && e.close());
-    }), l ? e.loadURL(l + "?mode=visualization") : e.loadFile(i.join(p, "index.html"), {
+    }), e.setAlwaysOnTop(!0, "screen-saver"), e.on("closed", () => {
+      e = null, i && !i.isDestroyed() && i.webContents.send("visualization-closed");
+    }), e.once("ready-to-show", () => e == null ? void 0 : e.show()), e.webContents.on("before-input-event", (r, a) => {
+      a.key === "Escape" && a.type === "keyDown" && (e == null || e.close());
+    }), o.isPackaged ? e.loadFile(n.join(l, "index.html"), {
       query: { mode: "visualization" }
-    }), a.sender.send("visualization-opened"), console.log("Visualization kiosk window opened (Press ESC to close)");
-  } catch (s) {
-    console.error("Error opening visualization kiosk:", s);
+    }) : t ? e.loadURL(t + "?mode=visualization") : e.loadFile(n.join(l, "index.html"), {
+      query: { mode: "visualization" }
+    }), s.sender.send("visualization-opened");
+  } catch (r) {
+    console.error("Error opening visualization kiosk:", r);
   }
 });
-r.on("close-visualization", (a) => {
-  console.log("Received close-visualization request"), e && !e.isDestroyed() && (e.close(), e = null, a.sender.send("visualization-closed"), console.log("Visualization kiosk window closed"));
+c.on("close-visualization", (s) => {
+  e && !e.isDestroyed() && (e.close(), e = null, s.sender.send("visualization-closed"));
 });
-r.on("quit-app", () => {
-  console.log("Received quit-app request"), n.quit();
+c.on("quit-app", () => o.quit());
+o.on("window-all-closed", () => {
+  process.platform !== "darwin" && (o.quit(), i = null);
 });
-console.log("IPC handler registered for open-external");
-n.on("window-all-closed", () => {
-  process.platform !== "darwin" && (n.quit(), o = null);
+o.on("activate", () => {
+  p.getAllWindows().length === 0 && u();
 });
-n.on("activate", () => {
-  c.getAllWindows().length === 0 && u();
-});
-n.whenReady().then(() => {
-  console.log("App is ready, creating window"), u();
+o.whenReady().then(() => {
+  u();
 });
 export {
-  R as MAIN_DIST,
-  p as RENDERER_DIST,
-  l as VITE_DEV_SERVER_URL
+  b as MAIN_DIST,
+  l as RENDERER_DIST,
+  t as VITE_DEV_SERVER_URL
 };
