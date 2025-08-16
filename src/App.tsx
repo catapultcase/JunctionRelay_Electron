@@ -32,6 +32,8 @@ export default function App() {
   const [visualizationOpen, setVisualizationOpen] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "info" | "error" } | null>(null);
   const [appVersion, setAppVersion] = useState<string>("");
+  const [wsRunning, setWsRunning] = useState(false);
+  const [wsStats, setWsStats] = useState<any>(null);
 
   // Auto-hide toast
   useEffect(() => {
@@ -54,16 +56,44 @@ export default function App() {
 
     const handleVisualizationOpened = () => setVisualizationOpen(true);
     const handleVisualizationClosed = () => setVisualizationOpen(false);
+    const handleWsStatus = (_e: any, msg: { ok: boolean; message: string }) => {
+      setToast({ msg: msg.message, type: msg.ok ? "info" : "error" });
+      // Determine if WebSocket is running based on message
+      if (msg.message.includes("started") || msg.message.includes("already running")) {
+        setWsRunning(true);
+        // Fetch stats when server starts
+        setTimeout(() => {
+          window.ipcRenderer?.invoke("ws-stats").then(setWsStats);
+        }, 500);
+      } else if (msg.message.includes("stopped") || msg.message.includes("not running")) {
+        setWsRunning(false);
+        setWsStats(null);
+      }
+    };
 
     window.ipcRenderer.on("visualization-opened", handleVisualizationOpened);
     window.ipcRenderer.on("visualization-closed", handleVisualizationClosed);
+    window.ipcRenderer.on("ws-status", handleWsStatus);
+
     window.ipcRenderer.invoke("get-app-version").then((v) => v && setAppVersion(v));
 
     return () => {
       window.ipcRenderer?.off("visualization-opened", handleVisualizationOpened);
       window.ipcRenderer?.off("visualization-closed", handleVisualizationClosed);
+      window.ipcRenderer?.off("ws-status", handleWsStatus);
     };
   }, []);
+
+  // Periodic stats update when WebSocket is running
+  useEffect(() => {
+    if (!wsRunning || !window.ipcRenderer) return;
+    
+    const interval = setInterval(() => {
+      window.ipcRenderer?.invoke("ws-stats").then(setWsStats);
+    }, 3000); // Update every 3 seconds
+
+    return () => clearInterval(interval);
+  }, [wsRunning]);
 
   const openJunctionRelay = () => setShowUrlDialog(true);
   const openJunctionRelayCloud = () => {
@@ -76,7 +106,21 @@ export default function App() {
     }
   };
   const openJunctionRelaySettings = () => setToast({ msg: "Settings coming soon.", type: "info" });
-  const startWebSocketServer = () => setToast({ msg: "WebSocket Server coming soon.", type: "info" });
+  
+  const startWebSocketServer = () => {
+    if (!window.ipcRenderer) return setToast({ msg: "ipcRenderer unavailable.", type: "error" });
+    try {
+      if (wsRunning) {
+        window.ipcRenderer.send("stop-ws");
+        setToast({ msg: "Stopping WebSocket Server…", type: "info" });
+      } else {
+        window.ipcRenderer.send("start-ws");
+        setToast({ msg: "Starting WebSocket Server…", type: "info" });
+      }
+    } catch {
+      setToast({ msg: "Failed to toggle WebSocket Server.", type: "error" });
+    }
+  };
 
   const launchVisualization = () => {
     if (!window.ipcRenderer) return setToast({ msg: "ipcRenderer unavailable.", type: "error" });
@@ -84,7 +128,10 @@ export default function App() {
       if (visualizationOpen) window.ipcRenderer.send("close-visualization");
       else window.ipcRenderer.send("open-visualization");
     } catch {
-      setToast({ msg: visualizationOpen ? "Error closing visualization." : "Error launching visualization.", type: "error" });
+      setToast({
+        msg: visualizationOpen ? "Error closing visualization." : "Error launching visualization.",
+        type: "error",
+      });
     }
   };
 
@@ -168,12 +215,28 @@ export default function App() {
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ display: "flex", gap: 12 }}>
               <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={startWebSocketServer}>
-                ▶️ Start WebSocket Server
+                {wsRunning ? "⏹️ Stop WebSocket Server" : "▶️ Start WebSocket Server"}
               </button>
               <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={launchVisualization}>
                 {visualizationOpen ? "❌ Close Visualization" : "🎨 Launch Visualization"}
               </button>
             </div>
+            {/* WebSocket Status */}
+            {wsRunning && wsStats && (
+              <div style={{ 
+                fontSize: 12, 
+                color: "#9aa0a6", 
+                backgroundColor: "#1a1a1a", 
+                padding: "8px 12px", 
+                borderRadius: 4,
+                border: "1px solid #333"
+              }}>
+                <div><strong>WebSocket Server Running</strong> - Port 81</div>
+                <div>Connected Clients: {wsStats.clients}</div>
+                <div>Messages: ↓{wsStats.messagesReceived} ↑{wsStats.messagesSent}</div>
+                {wsStats.errorCount > 0 && <div style={{ color: "#ff6b6b" }}>Errors: {wsStats.errorCount}</div>}
+              </div>
+            )}
             <div>
               <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={openVirtualDeviceSettings}>
                 ⚙️ Settings
