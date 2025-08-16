@@ -1,131 +1,80 @@
-import { app, ipcMain, shell, BrowserWindow } from "electron";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-app.commandLine.appendSwitch("disable-gpu");
-app.commandLine.appendSwitch("disable-gpu-compositing");
-app.commandLine.appendSwitch("disable-gpu-rasterization");
-app.commandLine.appendSwitch("disable-gpu-sandbox");
-app.commandLine.appendSwitch("disable-software-rasterizer");
-process.env.APP_ROOT = path.join(__dirname, "..");
-const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
-const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
-const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
-process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
-let win;
-let kioskWindow = null;
-function createWindow() {
-  win = new BrowserWindow({
-    icon: path.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
+import { app as n, ipcMain as r, shell as w, BrowserWindow as c } from "electron";
+import { fileURLToPath as f } from "node:url";
+import i from "node:path";
+const d = i.dirname(f(import.meta.url));
+process.platform === "linux" && process.arch.startsWith("arm") && (n.disableHardwareAcceleration(), n.commandLine.appendSwitch("disable-gpu"), n.commandLine.appendSwitch("disable-gpu-compositing"), n.commandLine.appendSwitch("disable-gpu-rasterization"), n.commandLine.appendSwitch("disable-gpu-sandbox"));
+process.env.APP_ROOT = i.join(d, "..");
+const l = process.env.VITE_DEV_SERVER_URL, h = i.join(process.env.APP_ROOT, "dist-electron"), p = i.join(process.env.APP_ROOT, "dist");
+process.env.VITE_PUBLIC = l ? i.join(process.env.APP_ROOT, "public") : p;
+let o, e = null;
+function u() {
+  o = new c({
+    icon: i.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
     webPreferences: {
-      preload: path.join(__dirname, "preload.mjs"),
-      contextIsolation: true,
-      nodeIntegration: false
+      preload: i.join(d, "preload.mjs"),
+      contextIsolation: !0,
+      nodeIntegration: !1
     }
-  });
-  if (VITE_DEV_SERVER_URL) {
-    win.webContents.openDevTools();
-  }
-  win.webContents.on("did-finish-load", () => {
-    console.log("Window finished loading");
-    win == null ? void 0 : win.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
-  });
-  if (VITE_DEV_SERVER_URL) {
-    win.loadURL(VITE_DEV_SERVER_URL);
-  } else {
-    win.loadFile(path.join(RENDERER_DIST, "index.html"));
-  }
+  }), l && o.webContents.openDevTools(), o.webContents.on("did-finish-load", () => {
+    console.log("Window finished loading"), o == null || o.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
+  }), l ? o.loadURL(l) : o.loadFile(i.join(p, "index.html"));
 }
-ipcMain.on("open-external", (_, url) => {
-  console.log("Received open-external request for URL:", url);
+r.on("open-external", (t, s) => {
+  console.log("Received open-external request for URL:", s);
   try {
-    shell.openExternal(url);
-    console.log("Successfully opened external URL:", url);
-  } catch (error) {
-    console.error("Error opening external URL:", error);
+    w.openExternal(s), console.log("Successfully opened external URL:", s);
+  } catch (a) {
+    console.error("Error opening external URL:", a);
   }
 });
-ipcMain.on("open-visualization", (event) => {
+r.on("open-visualization", (t) => {
   console.log("Received open-visualization request");
   try {
-    kioskWindow = new BrowserWindow({
+    e = new c({
       width: 400,
       height: 1280,
-      frame: false,
-      alwaysOnTop: true,
-      resizable: false,
+      frame: !1,
+      alwaysOnTop: !0,
+      resizable: !1,
       webPreferences: {
-        preload: path.join(__dirname, "preload.mjs"),
-        contextIsolation: true,
-        nodeIntegration: false,
-        webSecurity: false
+        preload: i.join(d, "preload.mjs"),
+        contextIsolation: !0,
+        nodeIntegration: !1,
+        webSecurity: !1
       },
-      show: false
+      show: !1
       // Don't show until ready
-    });
-    kioskWindow.on("closed", () => {
-      kioskWindow = null;
-      if (win && !win.isDestroyed()) {
-        win.webContents.send("visualization-closed");
-      }
-    });
-    kioskWindow.once("ready-to-show", () => {
-      if (kioskWindow) {
-        kioskWindow.show();
-      }
-    });
-    kioskWindow.webContents.on("before-input-event", (_, input) => {
-      if (input.key === "Escape" && input.type === "keyDown") {
-        console.log("Escape key pressed - closing visualization");
-        if (kioskWindow) {
-          kioskWindow.close();
-        }
-      }
-    });
-    if (VITE_DEV_SERVER_URL) {
-      kioskWindow.loadURL(VITE_DEV_SERVER_URL + "?mode=visualization");
-    } else {
-      kioskWindow.loadFile(path.join(RENDERER_DIST, "index.html"), {
-        query: { mode: "visualization" }
-      });
-    }
-    event.sender.send("visualization-opened");
-    console.log("Visualization kiosk window opened (Press ESC to close)");
-  } catch (error) {
-    console.error("Error opening visualization kiosk:", error);
+    }), e.on("closed", () => {
+      e = null, o && !o.isDestroyed() && o.webContents.send("visualization-closed");
+    }), e.once("ready-to-show", () => {
+      e && e.show();
+    }), e.webContents.on("before-input-event", (s, a) => {
+      a.key === "Escape" && a.type === "keyDown" && (console.log("Escape key pressed - closing visualization"), e && e.close());
+    }), l ? e.loadURL(l + "?mode=visualization") : e.loadFile(i.join(p, "index.html"), {
+      query: { mode: "visualization" }
+    }), t.sender.send("visualization-opened"), console.log("Visualization kiosk window opened (Press ESC to close)");
+  } catch (s) {
+    console.error("Error opening visualization kiosk:", s);
   }
 });
-ipcMain.on("close-visualization", (event) => {
-  console.log("Received close-visualization request");
-  if (kioskWindow && !kioskWindow.isDestroyed()) {
-    kioskWindow.close();
-    kioskWindow = null;
-    event.sender.send("visualization-closed");
-    console.log("Visualization kiosk window closed");
-  }
+r.on("close-visualization", (t) => {
+  console.log("Received close-visualization request"), e && !e.isDestroyed() && (e.close(), e = null, t.sender.send("visualization-closed"), console.log("Visualization kiosk window closed"));
 });
-ipcMain.on("quit-app", () => {
-  console.log("Received quit-app request");
-  app.quit();
+r.on("quit-app", () => {
+  console.log("Received quit-app request"), n.quit();
 });
 console.log("IPC handler registered for open-external");
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-    win = null;
-  }
+n.on("window-all-closed", () => {
+  process.platform !== "darwin" && (n.quit(), o = null);
 });
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
+n.on("activate", () => {
+  c.getAllWindows().length === 0 && u();
 });
-app.whenReady().then(() => {
-  console.log("App is ready, creating window");
-  createWindow();
+n.whenReady().then(() => {
+  console.log("App is ready, creating window"), u();
 });
 export {
-  MAIN_DIST,
-  RENDERER_DIST,
-  VITE_DEV_SERVER_URL
+  h as MAIN_DIST,
+  p as RENDERER_DIST,
+  l as VITE_DEV_SERVER_URL
 };

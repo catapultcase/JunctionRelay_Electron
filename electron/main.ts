@@ -4,12 +4,18 @@ import path from 'node:path'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-// Add GPU flags for Raspberry Pi compatibility - MUST be before app.whenReady()
-app.commandLine.appendSwitch('disable-gpu')
-app.commandLine.appendSwitch('disable-gpu-compositing')
-app.commandLine.appendSwitch('disable-gpu-rasterization')
-app.commandLine.appendSwitch('disable-gpu-sandbox')
-app.commandLine.appendSwitch('disable-software-rasterizer')
+// Raspberry Pi (Linux/ARM): force software rendering (Canvas-friendly)
+// - disableHardwareAcceleration(): turns off GPU acceleration globally
+// - disable-gpu* switches: prevent Chromium from trying EGL/GBM
+// IMPORTANT: do NOT use 'disable-software-rasterizer' — we want SwiftShader.
+if (process.platform === 'linux' && process.arch.startsWith('arm')) {
+  app.disableHardwareAcceleration()
+  app.commandLine.appendSwitch('disable-gpu')
+  app.commandLine.appendSwitch('disable-gpu-compositing')
+  app.commandLine.appendSwitch('disable-gpu-rasterization')
+  app.commandLine.appendSwitch('disable-gpu-sandbox')
+  // app.commandLine.appendSwitch('disable-software-rasterizer') // ❌ do NOT enable
+}
 
 // The built directory structure
 //
@@ -27,7 +33,9 @@ export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron')
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
 
-process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST
+process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
+  ? path.join(process.env.APP_ROOT, 'public')
+  : RENDERER_DIST
 
 let win: BrowserWindow | null
 let kioskWindow: BrowserWindow | null = null
@@ -38,7 +46,7 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
     },
   })
 
@@ -50,13 +58,12 @@ function createWindow() {
   // Test active push message to Renderer-process.
   win.webContents.on('did-finish-load', () => {
     console.log('Window finished loading')
-    win?.webContents.send('main-process-message', (new Date).toLocaleString())
+    win?.webContents.send('main-process-message', new Date().toLocaleString())
   })
 
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
-    // win.loadFile('dist/index.html')
     win.loadFile(path.join(RENDERER_DIST, 'index.html'))
   }
 }
@@ -86,28 +93,24 @@ ipcMain.on('open-visualization', (event) => {
         preload: path.join(__dirname, 'preload.mjs'),
         contextIsolation: true,
         nodeIntegration: false,
-        webSecurity: false
+        webSecurity: false,
       },
-      show: false // Don't show until ready
+      show: false, // Don't show until ready
     })
 
-    // Handle when kiosk window is closed manually
     kioskWindow.on('closed', () => {
       kioskWindow = null
-      // Notify main window that kiosk was closed
       if (win && !win.isDestroyed()) {
         win.webContents.send('visualization-closed')
       }
     })
 
-    // Show window when ready
     kioskWindow.once('ready-to-show', () => {
       if (kioskWindow) {
         kioskWindow.show()
       }
     })
 
-    // Add keyboard shortcut to close visualization (Escape key)
     kioskWindow.webContents.on('before-input-event', (_, input) => {
       if (input.key === 'Escape' && input.type === 'keyDown') {
         console.log('Escape key pressed - closing visualization')
@@ -117,18 +120,15 @@ ipcMain.on('open-visualization', (event) => {
       }
     })
 
-    // Load the visualization page with a query parameter
     if (VITE_DEV_SERVER_URL) {
       kioskWindow.loadURL(VITE_DEV_SERVER_URL + '?mode=visualization')
     } else {
-      kioskWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), { 
-        query: { mode: 'visualization' } 
+      kioskWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), {
+        query: { mode: 'visualization' },
       })
     }
 
-    // Notify main window that kiosk was opened
     event.sender.send('visualization-opened')
-
     console.log('Visualization kiosk window opened (Press ESC to close)')
   } catch (error) {
     console.error('Error opening visualization kiosk:', error)
@@ -154,9 +154,7 @@ ipcMain.on('quit-app', () => {
 
 console.log('IPC handler registered for open-external')
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
+// Quit when all windows are closed, except on macOS
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
@@ -165,8 +163,6 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  // On OS X it's common to re-create a window in the app when the
-  // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow()
   }
