@@ -1,3 +1,8 @@
+npm run dev
+
+npm run build
+
+
 Remove-Item -Recurse -Force dist, dist-electron   
 
 npm ci
