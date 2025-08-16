@@ -1,9 +1,12 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import SensorTest from "./SensorTest";
 
 declare global {
   interface Window {
     ipcRenderer?: {
       send: (channel: string, ...args: any[]) => void;
+      on: (channel: string, listener: (event: any, ...args: any[]) => void) => void;
+      off: (channel: string, listener: (...args: any[]) => void) => void;
     };
   }
 }
@@ -11,6 +14,40 @@ declare global {
 export default function App() {
   const [showUrlDialog, setShowUrlDialog] = useState(false);
   const [urlInput, setUrlInput] = useState("http://10.168.1.90:7180/");
+  const [visualizationOpen, setVisualizationOpen] = useState(false);
+
+  // Check if we're in visualization mode
+  const urlParams = new URLSearchParams(window.location.search);
+  const isVisualizationMode = urlParams.get('mode') === 'visualization';
+
+  console.log('Current URL:', window.location.href);
+  console.log('Is visualization mode:', isVisualizationMode);
+
+  // If we're in visualization mode, just show the sensor test
+  if (isVisualizationMode) {
+    return <SensorTest />;
+  }
+
+  // Set up IPC listeners for visualization state
+  useEffect(() => {
+    if (!window.ipcRenderer) return;
+
+    const handleVisualizationOpened = () => {
+      setVisualizationOpen(true);
+    };
+
+    const handleVisualizationClosed = () => {
+      setVisualizationOpen(false);
+    };
+
+    window.ipcRenderer.on('visualization-opened', handleVisualizationOpened);
+    window.ipcRenderer.on('visualization-closed', handleVisualizationClosed);
+
+    return () => {
+      window.ipcRenderer?.off('visualization-opened', handleVisualizationOpened);
+      window.ipcRenderer?.off('visualization-closed', handleVisualizationClosed);
+    };
+  }, []);
 
   const openJunctionRelay = () => {
     console.log("JunctionRelay Local button clicked");
@@ -44,7 +81,41 @@ export default function App() {
   };
 
   const launchVisualization = () => {
-    alert("Visualization: coming soon");
+    if (visualizationOpen) {
+      // Close visualization
+      console.log("Close Visualization button clicked");
+      
+      if (!window.ipcRenderer) {
+        console.error("ipcRenderer is not available");
+        alert("Error: ipcRenderer is not available. Check preload script.");
+        return;
+      }
+      
+      try {
+        window.ipcRenderer.send("close-visualization");
+        console.log("Visualization close request sent");
+      } catch (error) {
+        console.error("Error closing visualization:", error);
+        alert("Error closing visualization");
+      }
+    } else {
+      // Launch visualization
+      console.log("Launch Visualization button clicked");
+      
+      if (!window.ipcRenderer) {
+        console.error("ipcRenderer is not available");
+        alert("Error: ipcRenderer is not available. Check preload script.");
+        return;
+      }
+      
+      try {
+        window.ipcRenderer.send("open-visualization");
+        console.log("Visualization launch request sent");
+      } catch (error) {
+        console.error("Error launching visualization:", error);
+        alert("Error launching visualization");
+      }
+    }
   };
 
   const openVirtualDeviceSettings = () => {
@@ -83,12 +154,25 @@ export default function App() {
     }
   };
 
+  const quitApp = () => {
+    if (!window.ipcRenderer) {
+      console.error("ipcRenderer is not available");
+      return;
+    }
+    
+    try {
+      window.ipcRenderer.send("quit-app");
+    } catch (error) {
+      console.error("Error quitting app:", error);
+    }
+  };
+
   const handleCancelUrl = () => {
     setShowUrlDialog(false);
   };
 
   return (
-    <div style={{ padding: 24, fontFamily: "system-ui, Arial, sans-serif" }}>
+    <div style={{ padding: 24, fontFamily: "system-ui, Arial, sans-serif", position: "relative", minHeight: "calc(100vh - 80px)", paddingBottom: 60 }}>
       <h1 style={{ marginTop: 0 }}>JunctionRelay</h1>
       <p style={{ color: "#666" }}>
         Virtual device with WebSocket server and Rive visualization.
@@ -125,7 +209,7 @@ export default function App() {
               ▶️ Start WebSocket Server
             </button>
             <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={launchVisualization}>
-              🎨 Launch Visualization
+              {visualizationOpen ? "❌ Close Visualization" : "🎨 Launch Visualization"}
             </button>
           </div>
           <div>
@@ -135,6 +219,27 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {/* Quit Button */}
+      <button 
+        onClick={quitApp}
+        style={{
+          position: "fixed",
+          bottom: 20,
+          right: 20,
+          padding: "8px 12px",
+          cursor: "pointer",
+          backgroundColor: "#dc3545",
+          border: "none",
+          borderRadius: 4,
+          color: "white",
+          fontSize: 12,
+          fontWeight: 500,
+          zIndex: 1000
+        }}
+      >
+        🚪 Quit
+      </button>
 
       {/* URL Input Dialog */}
       {showUrlDialog && (

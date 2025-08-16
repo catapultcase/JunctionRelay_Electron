@@ -1,4 +1,4 @@
-import { ipcMain, shell, app, BrowserWindow } from "electron";
+import { ipcMain, shell, BrowserWindow, app } from "electron";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -41,6 +41,61 @@ ipcMain.on("open-external", (event, url) => {
   } catch (error) {
     console.error("Error opening external URL:", error);
   }
+});
+let kioskWindow = null;
+ipcMain.on("open-visualization", (event) => {
+  console.log("Received open-visualization request");
+  try {
+    kioskWindow = new BrowserWindow({
+      width: 400,
+      height: 1280,
+      frame: false,
+      alwaysOnTop: true,
+      resizable: false,
+      webPreferences: {
+        preload: path.join(__dirname, "preload.mjs"),
+        contextIsolation: true,
+        enableRemoteModule: false,
+        nodeIntegration: false
+      }
+    });
+    kioskWindow.on("closed", () => {
+      kioskWindow = null;
+      if (win && !win.isDestroyed()) {
+        win.webContents.send("visualization-closed");
+      }
+    });
+    kioskWindow.webContents.on("before-input-event", (event2, input) => {
+      if (input.key === "Escape" && input.type === "keyDown") {
+        console.log("Escape key pressed - closing visualization");
+        kioskWindow.close();
+      }
+    });
+    if (VITE_DEV_SERVER_URL) {
+      kioskWindow.loadURL(VITE_DEV_SERVER_URL + "?mode=visualization");
+    } else {
+      kioskWindow.loadFile(path.join(RENDERER_DIST, "index.html"), {
+        query: { mode: "visualization" }
+      });
+    }
+    event.sender.send("visualization-opened");
+    console.log("Visualization kiosk window opened (Press ESC to close)");
+  } catch (error) {
+    console.error("Error opening visualization kiosk:", error);
+  }
+});
+ipcMain.on("close-visualization", (event) => {
+  console.log("Received close-visualization request");
+  if (kioskWindow && !kioskWindow.isDestroyed()) {
+    kioskWindow.close();
+    kioskWindow = null;
+    event.sender.send("visualization-closed");
+    console.log("Visualization kiosk window closed");
+  }
+});
+ipcMain.on("quit-app", (event) => {
+  console.log("Received quit-app request");
+  app.quit();
 });
 console.log("IPC handler registered for open-external");
 app.on("window-all-closed", () => {

@@ -67,6 +67,78 @@ ipcMain.on('open-external', (event, url) => {
   }
 })
 
+let kioskWindow = null
+
+// IPC handler for opening visualization kiosk
+ipcMain.on('open-visualization', (event) => {
+  console.log('Received open-visualization request')
+  try {
+    kioskWindow = new BrowserWindow({
+      width: 400,
+      height: 1280,
+      frame: false,
+      alwaysOnTop: true,
+      resizable: false,
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.mjs'),
+        contextIsolation: true,
+        enableRemoteModule: false,
+        nodeIntegration: false
+      },
+    })
+
+    // Handle when kiosk window is closed manually
+    kioskWindow.on('closed', () => {
+      kioskWindow = null
+      // Notify main window that kiosk was closed
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('visualization-closed')
+      }
+    })
+
+    // Add keyboard shortcut to close visualization (Escape key)
+    kioskWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.key === 'Escape' && input.type === 'keyDown') {
+        console.log('Escape key pressed - closing visualization')
+        kioskWindow.close()
+      }
+    })
+
+    // Load the visualization page with a query parameter
+    if (VITE_DEV_SERVER_URL) {
+      kioskWindow.loadURL(VITE_DEV_SERVER_URL + '?mode=visualization')
+    } else {
+      kioskWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), { 
+        query: { mode: 'visualization' } 
+      })
+    }
+
+    // Notify main window that kiosk was opened
+    event.sender.send('visualization-opened')
+
+    console.log('Visualization kiosk window opened (Press ESC to close)')
+  } catch (error) {
+    console.error('Error opening visualization kiosk:', error)
+  }
+})
+
+// IPC handler for closing visualization kiosk
+ipcMain.on('close-visualization', (event) => {
+  console.log('Received close-visualization request')
+  if (kioskWindow && !kioskWindow.isDestroyed()) {
+    kioskWindow.close()
+    kioskWindow = null
+    event.sender.send('visualization-closed')
+    console.log('Visualization kiosk window closed')
+  }
+})
+
+// IPC handler for quitting the app
+ipcMain.on('quit-app', (event) => {
+  console.log('Received quit-app request')
+  app.quit()
+})
+
 console.log('IPC handler registered for open-external')
 
 // Quit when all windows are closed, except on macOS. There, it's common
