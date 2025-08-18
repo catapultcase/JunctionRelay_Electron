@@ -7,42 +7,56 @@ import {
   StateMachineInputType,
 } from '@rive-app/react-canvas'
 
+interface RiveSettings {
+  fit: string;
+  alignment: string;
+  autoplay: boolean;
+  loop: boolean;
+  stateMachine?: string;
+}
+
+interface RiveConfigItem {
+  enabled: boolean;
+  file: string;
+  fileUrl?: string;
+  inputs: Record<string, any>;
+  settings: RiveSettings;
+  fileData?: string;
+  filename?: string;
+  embedded?: boolean;
+}
+
+interface CanvasConfig {
+  width: number;
+  height: number;
+  orientation: string;
+}
+
+interface BackgroundConfig {
+  type: string;
+  color: string;
+  hasImageData: boolean;
+  opacity: number;
+}
+
+interface FrameConfig {
+  version?: string;
+  lastConfigUpdate?: string;
+  canvas: CanvasConfig;
+  background: BackgroundConfig;
+  rive: RiveConfigItem;
+}
+
 interface RiveConfig {
   type: "rive_config";
   screenId: string;
   frameConfig: {
     type?: "rive_config";
     screenId?: string;
-    frameConfig?: {
-      version?: string;
-      lastConfigUpdate?: string;
-      canvas: {
-        width: number;
-        height: number;
-        orientation: string;
-      };
-      background: {
-        type: string;
-        color: string;
-        hasImageData: boolean;
-        opacity: number;
-      };
-      rive: {
-        enabled: boolean;
-        file: string;
-        fileUrl?: string; // NEW: URL for downloading Rive files
-        inputs: Record<string, any>;
-        settings: {
-          fit: string;
-          alignment: string;
-          autoplay: boolean;
-          loop: boolean;
-        };
-        fileData?: string;
-        filename?: string;
-        embedded?: boolean;
-      };
-    };
+    frameConfig?: FrameConfig;
+    canvas?: CanvasConfig;
+    background?: BackgroundConfig;
+    rive?: RiveConfigItem;
     frameElements?: Array<{
       id: string;
       type: string;
@@ -213,7 +227,7 @@ export default function SensorTest() {
         if (blob.size < 10000) {
           addConfigMessage(`⚠️ File appears truncated - checking first few bytes as text...`);
           const text = await blob.slice(0, Math.min(blob.size, 200)).text();
-          addConfigMessage(`📝 First 200 chars: ${text}`);
+          addConfigMessage(`🔍 First 200 chars: ${text}`);
         }
         
         const blobUrl = URL.createObjectURL(blob);
@@ -252,19 +266,19 @@ export default function SensorTest() {
       // Handle relative file reference
       const fileUrl = `/api/frameengine/rive-files/${riveConfig.file}/content`;
       setRiveFileBlob(fileUrl);
-      addConfigMessage(`📁 Using relative file: ${fileUrl}`);
+      addConfigMessage(`🔍 Using relative file: ${fileUrl}`);
       return fileUrl;
     } else if (config.riveFile) {
       // Handle top-level file reference
       const fileUrl = `/api/frameengine/rive-files/${config.riveFile}/content`;
       setRiveFileBlob(fileUrl);
-      addConfigMessage(`📁 Using top-level file: ${fileUrl}`);
+      addConfigMessage(`🔍 Using top-level file: ${fileUrl}`);
       return fileUrl;
     } else {
       // Fallback
       const legacyUrl = '/jr.riv';
       setRiveFileBlob(legacyUrl);
-      addConfigMessage(`📁 Using fallback: ${legacyUrl}`);
+      addConfigMessage(`🔍 Using fallback: ${legacyUrl}`);
       return legacyUrl;
     }
   };
@@ -388,26 +402,33 @@ export default function SensorTest() {
     };
   }, [riveConfig]);
 
-  // Set up Rive
-  const { rive, RiveComponent } = useRive({
+  // Set up Rive - Fixed useRive options type
+  const riveOptions = useMemo(() => ({
     src: riveFileBlob || '',
     autoplay: true,
-    layout: new Layout({ fit: Fit.Contain, alignment: Alignment.Center }), // FIXED: Use Contain not Cover
+    layout: new Layout({ fit: Fit.Contain, alignment: Alignment.Center }),
     onLoad: () => {
       addConfigMessage(`✅ Rive loaded successfully!`);
-      addConfigMessage(`🎨 Artboards: ${rive?.artboardNames?.join(', ') || 'none'}`);
+      // Fixed: Check if rive has artboardNames property
+      if (rive && 'artboardNames' in rive && Array.isArray(rive.artboardNames)) {
+        addConfigMessage(`🎨 Artboards: ${rive.artboardNames.join(', ')}`);
+      } else {
+        addConfigMessage(`🎨 Artboards: none or not available`);
+      }
       if (rive && rive.stateMachineNames?.length > 0) {
         addConfigMessage(`🎮 State machines: ${rive.stateMachineNames.join(', ')}`);
       } else {
         addConfigMessage(`⚠️ No state machines found`);
       }
     },
-    onLoadError: (error) => {
+    onLoadError: (error: any) => {
       addConfigMessage(`❌ Rive load error: ${error}`);
       addConfigMessage(`🔍 Attempted to load: ${riveFileBlob}`);
-      addConfigMessage(`📁 File size was: 634 bytes (seems small for Rive file)`);
+      addConfigMessage(`🔍 File size was: 634 bytes (seems small for Rive file)`);
     },
-  }, [riveFileBlob]);
+  }), [riveFileBlob]);
+
+  const { rive, RiveComponent } = useRive(riveOptions);
 
   // Get state machine inputs
   const stateMachineInputs = useMemo(() => {
@@ -528,7 +549,7 @@ export default function SensorTest() {
         overflow: 'auto',
       }}>
         <div style={{ marginBottom: '20px' }}>
-          <h2 style={{ color: '#0ff', margin: '0 0 10px 0' }}>🐛 SensorTest Debug Panel</h2>
+          <h2 style={{ color: '#0ff', margin: '0 0 10px 0' }}>🛠 SensorTest Debug Panel</h2>
           <div>Status: {isConfigured ? '✅ Configured' : '⏳ Waiting for config'}</div>
           <div>Rive File: {riveFileBlob ? '✅ Loaded' : '❌ None'}</div>
           <div>Canvas: {canvasConfig ? `${canvasConfig.width}×${canvasConfig.height}` : 'Unknown'}</div>

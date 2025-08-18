@@ -33,7 +33,7 @@ export default function App() {
   const [toast, setToast] = useState<{ msg: string; type: "info" | "error" } | null>(null);
   const [appVersion, setAppVersion] = useState<string>("");
   const [wsRunning, setWsRunning] = useState(false);
-  const [wsStats, setWsStats] = useState<any>(null);
+  // Removed unused wsStats state variable
 
   // Auto-hide toast
   useEffect(() => {
@@ -61,13 +61,8 @@ export default function App() {
       // Determine if WebSocket is running based on message
       if (msg.message.includes("started") || msg.message.includes("already running")) {
         setWsRunning(true);
-        // Fetch stats when server starts
-        setTimeout(() => {
-          window.ipcRenderer?.invoke("ws-stats").then(setWsStats);
-        }, 500);
       } else if (msg.message.includes("stopped") || msg.message.includes("not running")) {
         setWsRunning(false);
-        setWsStats(null);
       }
     };
 
@@ -83,17 +78,6 @@ export default function App() {
       window.ipcRenderer?.off("ws-status", handleWsStatus);
     };
   }, []);
-
-  // Periodic stats update when WebSocket is running
-  useEffect(() => {
-    if (!wsRunning || !window.ipcRenderer) return;
-    
-    const interval = setInterval(() => {
-      window.ipcRenderer?.invoke("ws-stats").then(setWsStats);
-    }, 3000); // Update every 3 seconds
-
-    return () => clearInterval(interval);
-  }, [wsRunning]);
 
   const openJunctionRelay = () => setShowUrlDialog(true);
   const openJunctionRelayCloud = () => {
@@ -122,20 +106,8 @@ export default function App() {
     }
   };
 
-  const launchVisualization = () => {
-    if (!window.ipcRenderer) return setToast({ msg: "ipcRenderer unavailable.", type: "error" });
-    try {
-      if (visualizationOpen) window.ipcRenderer.send("close-visualization");
-      else window.ipcRenderer.send("open-visualization");
-    } catch {
-      setToast({
-        msg: visualizationOpen ? "Error closing visualization." : "Error launching visualization.",
-        type: "error",
-      });
-    }
-  };
-
-  const openVirtualDeviceSettings = () => setToast({ msg: "Virtual Device Settings coming soon.", type: "info" });
+  // Removed unused launchVisualization function
+  // Removed unused openVirtualDeviceSettings function
 
   const handleOpenUrl = () => {
     if (!window.ipcRenderer) return setToast({ msg: "ipcRenderer unavailable.", type: "error" });
@@ -227,7 +199,7 @@ export default function App() {
           }
         }}
       >
-        {visualizationOpen ? "⌛ Close Fullscreen" : "🎨 Launch Fullscreen"}
+        {visualizationOpen ? "⏰ Close Fullscreen" : "🎨 Launch Fullscreen"}
       </button>
       <button 
         style={{ padding: "10px 14px", cursor: "pointer" }} 
@@ -239,7 +211,7 @@ export default function App() {
           }
         }}
       >
-        {visualizationOpen ? "⌛ Close Debug" : "🐛 Launch Debug"}
+        {visualizationOpen ? "⏰ Close Debug" : "🛠 Launch Debug"}
       </button>
     </div>
           </div>
