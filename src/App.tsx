@@ -210,38 +210,38 @@ export default function App() {
         <hr style={{ margin: "12px 0", border: "none", borderTop: "1px solid #333" }} />
 
         {/* Virtual Device Section */}
-        <section>
-          <h3 style={{ margin: "0 0 12px" }}>JunctionRelay Virtual Device</h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", gap: 12 }}>
-              <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={startWebSocketServer}>
-                {wsRunning ? "⏹️ Stop WebSocket Server" : "▶️ Start WebSocket Server"}
-              </button>
-              <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={launchVisualization}>
-                {visualizationOpen ? "❌ Close Visualization" : "🎨 Launch Visualization"}
-              </button>
-            </div>
-            {/* WebSocket Status */}
-            {wsRunning && wsStats && (
-              <div style={{ 
-                fontSize: 12, 
-                color: "#9aa0a6", 
-                backgroundColor: "#1a1a1a", 
-                padding: "8px 12px", 
-                borderRadius: 4,
-                border: "1px solid #333"
-              }}>
-                <div><strong>WebSocket Server Running</strong> - Port 81</div>
-                <div>Connected Clients: {wsStats.clients}</div>
-                <div>Messages: ↓{wsStats.messagesReceived} ↑{wsStats.messagesSent}</div>
-                {wsStats.errorCount > 0 && <div style={{ color: "#ff6b6b" }}>Errors: {wsStats.errorCount}</div>}
-              </div>
-            )}
-            <div>
-              <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={openVirtualDeviceSettings}>
-                ⚙️ Settings
-              </button>
-            </div>
+<section>
+  <h3 style={{ margin: "0 0 12px" }}>JunctionRelay Virtual Device</h3>
+  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <div style={{ display: "flex", gap: 12 }}>
+      <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={startWebSocketServer}>
+        {wsRunning ? "⏹️ Stop WebSocket Server" : "▶️ Start WebSocket Server"}
+      </button>
+      <button 
+        style={{ padding: "10px 14px", cursor: "pointer" }} 
+        onClick={() => {
+          if (visualizationOpen) {
+            window.ipcRenderer?.send("close-visualization");
+          } else {
+            window.ipcRenderer?.send("open-visualization", { fullscreen: true });
+          }
+        }}
+      >
+        {visualizationOpen ? "⌛ Close Fullscreen" : "🎨 Launch Fullscreen"}
+      </button>
+      <button 
+        style={{ padding: "10px 14px", cursor: "pointer" }} 
+        onClick={() => {
+          if (visualizationOpen) {
+            window.ipcRenderer?.send("close-visualization");
+          } else {
+            window.ipcRenderer?.send("open-visualization", { fullscreen: false });
+          }
+        }}
+      >
+        {visualizationOpen ? "⌛ Close Debug" : "🐛 Launch Debug"}
+      </button>
+    </div>
           </div>
         </section>
       </main>
