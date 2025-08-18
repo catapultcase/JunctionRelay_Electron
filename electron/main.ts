@@ -94,9 +94,63 @@ function createWindow() {
   }
 }
 
-// Process sensor data from WebSocket messages
-function processSensorData(doc: Record<string, any>) {
+// Enhanced sensor and config data processing
+function processIncomingData(doc: Record<string, any>) {
+  console.log("[main] Processing document type:", doc.type);
+
+  // Handle Rive configuration payloads
+  if (doc.type === "rive_config") {
+    console.log("[main] 📋 Received Rive configuration for screenId:", doc.screenId);
+    console.log("[main] 📋 Config details:", {
+      canvasSize: doc.frameConfig?.canvas ? `${doc.frameConfig.canvas.width}x${doc.frameConfig.canvas.height}` : 'unknown',
+      riveFile: doc.frameConfig?.rive?.file || 'none',
+      riveEmbedded: doc.frameConfig?.rive?.embedded || false,
+      elementCount: doc.frameElements?.length || 0
+    });
+    
+    // Forward config to visualization window
+    if (kioskWindow && !kioskWindow.isDestroyed()) {
+      kioskWindow.webContents.send("rive-config", doc);
+      console.log("[main] ✅ Rive config forwarded to visualization window");
+    }
+    
+    // Also forward to main window for debugging
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("rive-config", doc);
+    }
+    
+    return;
+  }
+
+  // Handle Rive sensor data payloads
+  if (doc.type === "rive_sensor") {
+    console.log("[main] 📊 Received Rive sensor data for screenId:", doc.screenId);
+    console.log("[main] 📊 Sensor tags:", Object.keys(doc.sensors || {}));
+    
+    // Log sensor values for debugging
+    if (doc.sensors) {
+      Object.entries(doc.sensors).forEach(([tag, data]: [string, any]) => {
+        console.log(`[main] 📊   ${tag}: ${data.value} ${data.unit}`);
+      });
+    }
+    
+    // Forward sensor data to visualization window
+    if (kioskWindow && !kioskWindow.isDestroyed()) {
+      kioskWindow.webContents.send("rive-sensor-data", doc);
+      console.log("[main] ✅ Rive sensor data forwarded to visualization window");
+    }
+    
+    // Also forward to main window for debugging
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("rive-sensor-data", doc);
+    }
+    
+    return;
+  }
+
+  // Legacy sensor processing for backward compatibility
   if (doc.type === "sensor" && doc.sensors) {
+    console.log("[main] 🔄 Processing legacy sensor format");
     try {
       // Get the first sensor in the payload
       const firstSensorKey = Object.keys(doc.sensors)[0];
@@ -104,7 +158,9 @@ function processSensorData(doc: Record<string, any>) {
         const sensorValue = parseInt(doc.sensors[firstSensorKey][0].Value, 10);
         const sensorUnit = doc.sensors[firstSensorKey][0].Unit || "";
         
-        // Forward to visualization window
+        console.log(`[main] 🔄 Legacy sensor: ${firstSensorKey} = ${sensorValue} ${sensorUnit}`);
+        
+        // Forward to visualization window (legacy format)
         if (kioskWindow && !kioskWindow.isDestroyed()) {
           kioskWindow.webContents.send("sensor-data", {
             value: sensorValue,
@@ -114,43 +170,19 @@ function processSensorData(doc: Record<string, any>) {
         }
       }
     } catch (error) {
-      console.error("[main] Error processing sensor data:", error);
+      console.error("[main] Error processing legacy sensor data:", error);
     }
-  }
-}
-
-// WebSocket server functions
-async function startWebSocketServer() {
-  console.log("[main] startWebSocketServer() called");
-  if (jrWs?.isRunning()) {
-    console.log("[main] Helper_WS already running on :81");
-    win?.webContents.send("ws-status", { ok: true, message: "WebSocket already running." });
     return;
   }
 
-  try {
-    console.log("[main] Creating Helper_WebSocket on :81");
-    jrWs = new Helper_WebSocket({
-      port: 81,
-      onDocument: (doc: Record<string, any>) => {
-        win?.webContents.send("display:json", doc);
-        processSensorData(doc); // Process sensor data for visualization
-      },
-      onProtocol: (doc: Record<string, any>) => win?.webContents.send("display:protocol", doc),
-      onSystem:   (doc: Record<string, any>) => win?.webContents.send("display:system", doc),
-    });
-
-    await jrWs.start();
-    console.log("[main] ✅ Helper_WebSocket started on :81");
-    
-    // Start mDNS service discovery
-    await startMDNSService();
-    
-    win?.webContents.send("ws-status", { ok: true, message: "WebSocket server started on :81" });
-  } catch (helperErr) {
-    console.error("[main] Helper_WebSocket failed:", helperErr);
-    win?.webContents.send("ws-status", { ok: false, message: `Failed to start WebSocket: ${String(helperErr)}` });
+  // Handle other message types
+  if (doc.type === "heartbeat-response" || doc.type === "device-connected") {
+    console.log(`[main] 💓 Received ${doc.type}`);
+    return;
   }
+
+  // Log unknown message types for debugging
+  console.log(`[main] ❓ Unknown message type: ${doc.type}`);
 }
 
 async function startMDNSService() {
@@ -197,6 +229,49 @@ async function startMDNSService() {
   } catch (error) {
     console.log("[main] mDNS service failed to start:", (error as Error).message);
     console.log("[main] Device running without network discovery");
+  }
+}
+
+// WebSocket server functions
+async function startWebSocketServer() {
+  console.log("[main] startWebSocketServer() called");
+  if (jrWs?.isRunning()) {
+    console.log("[main] Helper_WS already running on :81");
+    win?.webContents.send("ws-status", { ok: true, message: "WebSocket already running." });
+    return;
+  }
+
+  try {
+    console.log("[main] Creating Helper_WebSocket on :81");
+    jrWs = new Helper_WebSocket({
+      port: 81,
+      onDocument: (doc: Record<string, any>) => {
+        // Send to main window for debugging
+        win?.webContents.send("display:json", doc);
+        
+        // Process both legacy and new data formats
+        processIncomingData(doc);
+      },
+      onProtocol: (doc: Record<string, any>) => {
+        console.log("[main] 🔌 Protocol message:", doc.type);
+        win?.webContents.send("display:protocol", doc);
+      },
+      onSystem: (doc: Record<string, any>) => {
+        console.log("[main] ⚙️ System message:", doc.type);
+        win?.webContents.send("display:system", doc);
+      },
+    });
+
+    await jrWs.start();
+    console.log("[main] ✅ Helper_WebSocket started on :81");
+    
+    // Start mDNS service discovery
+    await startMDNSService();
+    
+    win?.webContents.send("ws-status", { ok: true, message: "WebSocket server started on :81" });
+  } catch (helperErr) {
+    console.error("[main] Helper_WebSocket failed:", helperErr);
+    win?.webContents.send("ws-status", { ok: false, message: `Failed to start WebSocket: ${String(helperErr)}` });
   }
 }
 
@@ -252,14 +327,11 @@ ipcMain.handle("ws-stats", () => {
 });
 
 // IPC: open kiosk visualization
-ipcMain.on('open-visualization', (event) => {
+ipcMain.on('open-visualization', (event, options = {}) => {
   try {
-    kioskWindow = new BrowserWindow({
-      fullscreen: true,
-      frame: false,
-      alwaysOnTop: true,
-      skipTaskbar: true,
-      resizable: false,
+    console.log("[main] 🎨 Opening visualization window with options:", options);
+    
+    const windowOptions = {
       webPreferences: {
         preload: path.join(__dirname, 'preload.mjs'),
         contextIsolation: true,
@@ -267,19 +339,53 @@ ipcMain.on('open-visualization', (event) => {
         webSecurity: true,
       },
       show: false,
-    })
+    };
 
-    kioskWindow.setAlwaysOnTop(true, 'screen-saver')
+    // Apply fullscreen or windowed mode based on options
+    if (options.fullscreen !== false) {
+      // Default: fullscreen kiosk mode
+      Object.assign(windowOptions, {
+        fullscreen: true,
+        frame: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        resizable: false,
+      });
+    } else {
+      // Windowed mode for debugging
+      Object.assign(windowOptions, {
+        width: 1000,
+        height: 700,
+        frame: true,
+        alwaysOnTop: false,
+        skipTaskbar: false,
+        resizable: true,
+        title: 'JunctionRelay Visualization (Debug Mode)',
+      });
+    }
+
+    kioskWindow = new BrowserWindow(windowOptions);
+
+    if (options.fullscreen !== false) {
+      kioskWindow.setAlwaysOnTop(true, 'screen-saver');
+    }
 
     kioskWindow.on('closed', () => {
+      console.log("[main] 🎨 Visualization window closed");
       kioskWindow = null
       if (win && !win.isDestroyed()) win.webContents.send('visualization-closed')
     })
 
-    kioskWindow.once('ready-to-show', () => kioskWindow?.show())
+    kioskWindow.once('ready-to-show', () => {
+      console.log("[main] 🎨 Visualization window ready, showing");
+      kioskWindow?.show()
+    })
 
     kioskWindow.webContents.on('before-input-event', (_, input) => {
-      if (input.key === 'Escape' && input.type === 'keyDown') kioskWindow?.close()
+      if (input.key === 'Escape' && input.type === 'keyDown') {
+        console.log("[main] 🎨 Escape key pressed, closing visualization");
+        kioskWindow?.close()
+      }
     })
 
     if (app.isPackaged) {
@@ -295,6 +401,7 @@ ipcMain.on('open-visualization', (event) => {
     }
 
     event.sender.send('visualization-opened')
+    console.log("[main] ✅ Visualization window opened");
   } catch (error) {
     console.error('Error opening visualization kiosk:', error)
   }
@@ -303,6 +410,7 @@ ipcMain.on('open-visualization', (event) => {
 // IPC: close kiosk
 ipcMain.on('close-visualization', (event) => {
   if (kioskWindow && !kioskWindow.isDestroyed()) {
+    console.log("[main] 🎨 Closing visualization window (IPC request)");
     kioskWindow.close()
     kioskWindow = null
     event.sender.send('visualization-closed')
@@ -311,6 +419,7 @@ ipcMain.on('close-visualization', (event) => {
 
 // IPC: quit app
 ipcMain.on('quit-app', () => {
+  console.log("[main] 🚪 Quit app requested");
   try { stopWebSocketServer(); } catch {}
   app.quit()
 })
@@ -318,6 +427,7 @@ ipcMain.on('quit-app', () => {
 // Quit behavior
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    console.log("[main] 🚪 All windows closed, quitting app");
     try { stopWebSocketServer(); } catch {}
     app.quit()
     win = null
@@ -325,9 +435,13 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  if (BrowserWindow.getAllWindows().length === 0) {
+    console.log("[main] 📱 App activated, creating window");
+    createWindow()
+  }
 })
 
 app.whenReady().then(() => {
+  console.log("[main] 🚀 App ready, creating main window");
   createWindow()
 })

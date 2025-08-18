@@ -116,7 +116,7 @@ const _Helper_StreamProcessor = class _Helper_StreamProcessor {
     }
   }
   forward(doc, _srcType, _route) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t;
     const dest = doc == null ? void 0 : doc.destination;
     const localMac = _Helper_StreamProcessor.getFormattedMacAddress();
     if (dest && localMac && dest.toLowerCase() !== localMac.toLowerCase()) {
@@ -132,21 +132,27 @@ const _Helper_StreamProcessor = class _Helper_StreamProcessor {
       (_f = (_e = this.callbacks).onDocument) == null ? void 0 : _f.call(_e, doc);
       return;
     }
-    if (t === "sensor" || t === "config") {
+    if (t === "rive_config" || t === "rive_sensor") {
+      console.log(`[StreamProcessor] Routing ${t} to Document callback`);
       (_h = (_g = this.callbacks).onDocument) == null ? void 0 : _h.call(_g, doc);
       return;
     }
+    if (t === "sensor" || t === "config") {
+      (_j = (_i = this.callbacks).onDocument) == null ? void 0 : _j.call(_i, doc);
+      return;
+    }
     if (t === "MQTT_Subscription_Request" || t === "websocket_ping" || t === "http_request" || t === "espnow_message" || t === "peer_management") {
-      (_j = (_i = this.callbacks).onProtocol) == null ? void 0 : _j.call(_i, doc);
+      (_l = (_k = this.callbacks).onProtocol) == null ? void 0 : _l.call(_k, doc);
       return;
     }
     if (t === "preferences" || t === "stats" || t === "device_info" || t === "device_capabilities" || t === "system_command") {
-      (_l = (_k = this.callbacks).onSystem) == null ? void 0 : _l.call(_k, doc);
-      (_n = (_m = this.callbacks).onDocument) == null ? void 0 : _n.call(_m, doc);
+      (_n = (_m = this.callbacks).onSystem) == null ? void 0 : _n.call(_m, doc);
+      (_p = (_o = this.callbacks).onDocument) == null ? void 0 : _p.call(_o, doc);
       return;
     }
-    (_p = (_o = this.callbacks).onSystem) == null ? void 0 : _p.call(_o, doc);
-    (_r = (_q = this.callbacks).onDocument) == null ? void 0 : _r.call(_q, doc);
+    console.log(`[StreamProcessor] Unknown message type '${t}', routing to System callback`);
+    (_r = (_q = this.callbacks).onSystem) == null ? void 0 : _r.call(_q, doc);
+    (_t = (_s = this.callbacks).onDocument) == null ? void 0 : _t.call(_s, doc);
   }
   tryParseJSON(buf) {
     try {
@@ -192,7 +198,7 @@ const _Helper_StreamProcessor = class _Helper_StreamProcessor {
       ip: _Helper_StreamProcessor.getLocalIPv4(),
       uptime: Math.floor(uptime() * 1e3),
       freeHeap: freemem(),
-      // “free-ish” bytes
+      // "free-ish" bytes
       firmware: process.env.npm_package_version || "0.0.0",
       platform: platform()
     };
@@ -208,7 +214,7 @@ const _Helper_StreamProcessor = class _Helper_StreamProcessor {
   }
 };
 // 8 MB
-// Cached “MAC” equivalent (closest parity to ESP32 getFormattedMacAddress)
+// Cached "MAC" equivalent (closest parity to ESP32 getFormattedMacAddress)
 __publicField(_Helper_StreamProcessor, "cachedMac", null);
 let Helper_StreamProcessor = _Helper_StreamProcessor;
 const _Helper_WebSocket = class _Helper_WebSocket {
@@ -476,13 +482,51 @@ function createWindow() {
     win.loadFile(path.join(RENDERER_DIST, "index.html"));
   }
 }
-function processSensorData(doc) {
+function processIncomingData(doc) {
+  var _a, _b, _c, _d, _e, _f;
+  console.log("[main] Processing document type:", doc.type);
+  if (doc.type === "rive_config") {
+    console.log("[main] 📋 Received Rive configuration for screenId:", doc.screenId);
+    console.log("[main] 📋 Config details:", {
+      canvasSize: ((_a = doc.frameConfig) == null ? void 0 : _a.canvas) ? `${doc.frameConfig.canvas.width}x${doc.frameConfig.canvas.height}` : "unknown",
+      riveFile: ((_c = (_b = doc.frameConfig) == null ? void 0 : _b.rive) == null ? void 0 : _c.file) || "none",
+      riveEmbedded: ((_e = (_d = doc.frameConfig) == null ? void 0 : _d.rive) == null ? void 0 : _e.embedded) || false,
+      elementCount: ((_f = doc.frameElements) == null ? void 0 : _f.length) || 0
+    });
+    if (kioskWindow && !kioskWindow.isDestroyed()) {
+      kioskWindow.webContents.send("rive-config", doc);
+      console.log("[main] ✅ Rive config forwarded to visualization window");
+    }
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("rive-config", doc);
+    }
+    return;
+  }
+  if (doc.type === "rive_sensor") {
+    console.log("[main] 📊 Received Rive sensor data for screenId:", doc.screenId);
+    console.log("[main] 📊 Sensor tags:", Object.keys(doc.sensors || {}));
+    if (doc.sensors) {
+      Object.entries(doc.sensors).forEach(([tag, data]) => {
+        console.log(`[main] 📊   ${tag}: ${data.value} ${data.unit}`);
+      });
+    }
+    if (kioskWindow && !kioskWindow.isDestroyed()) {
+      kioskWindow.webContents.send("rive-sensor-data", doc);
+      console.log("[main] ✅ Rive sensor data forwarded to visualization window");
+    }
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("rive-sensor-data", doc);
+    }
+    return;
+  }
   if (doc.type === "sensor" && doc.sensors) {
+    console.log("[main] 🔄 Processing legacy sensor format");
     try {
       const firstSensorKey = Object.keys(doc.sensors)[0];
       if (firstSensorKey && doc.sensors[firstSensorKey] && doc.sensors[firstSensorKey][0]) {
         const sensorValue = parseInt(doc.sensors[firstSensorKey][0].Value, 10);
         const sensorUnit = doc.sensors[firstSensorKey][0].Unit || "";
+        console.log(`[main] 🔄 Legacy sensor: ${firstSensorKey} = ${sensorValue} ${sensorUnit}`);
         if (kioskWindow && !kioskWindow.isDestroyed()) {
           kioskWindow.webContents.send("sensor-data", {
             value: sensorValue,
@@ -492,36 +536,15 @@ function processSensorData(doc) {
         }
       }
     } catch (error) {
-      console.error("[main] Error processing sensor data:", error);
+      console.error("[main] Error processing legacy sensor data:", error);
     }
-  }
-}
-async function startWebSocketServer() {
-  console.log("[main] startWebSocketServer() called");
-  if (jrWs == null ? void 0 : jrWs.isRunning()) {
-    console.log("[main] Helper_WS already running on :81");
-    win == null ? void 0 : win.webContents.send("ws-status", { ok: true, message: "WebSocket already running." });
     return;
   }
-  try {
-    console.log("[main] Creating Helper_WebSocket on :81");
-    jrWs = new Helper_WebSocket({
-      port: 81,
-      onDocument: (doc) => {
-        win == null ? void 0 : win.webContents.send("display:json", doc);
-        processSensorData(doc);
-      },
-      onProtocol: (doc) => win == null ? void 0 : win.webContents.send("display:protocol", doc),
-      onSystem: (doc) => win == null ? void 0 : win.webContents.send("display:system", doc)
-    });
-    await jrWs.start();
-    console.log("[main] ✅ Helper_WebSocket started on :81");
-    await startMDNSService();
-    win == null ? void 0 : win.webContents.send("ws-status", { ok: true, message: "WebSocket server started on :81" });
-  } catch (helperErr) {
-    console.error("[main] Helper_WebSocket failed:", helperErr);
-    win == null ? void 0 : win.webContents.send("ws-status", { ok: false, message: `Failed to start WebSocket: ${String(helperErr)}` });
+  if (doc.type === "heartbeat-response" || doc.type === "device-connected") {
+    console.log(`[main] 💓 Received ${doc.type}`);
+    return;
   }
+  console.log(`[main] ❓ Unknown message type: ${doc.type}`);
 }
 async function startMDNSService() {
   try {
@@ -561,6 +584,39 @@ async function startMDNSService() {
   } catch (error) {
     console.log("[main] mDNS service failed to start:", error.message);
     console.log("[main] Device running without network discovery");
+  }
+}
+async function startWebSocketServer() {
+  console.log("[main] startWebSocketServer() called");
+  if (jrWs == null ? void 0 : jrWs.isRunning()) {
+    console.log("[main] Helper_WS already running on :81");
+    win == null ? void 0 : win.webContents.send("ws-status", { ok: true, message: "WebSocket already running." });
+    return;
+  }
+  try {
+    console.log("[main] Creating Helper_WebSocket on :81");
+    jrWs = new Helper_WebSocket({
+      port: 81,
+      onDocument: (doc) => {
+        win == null ? void 0 : win.webContents.send("display:json", doc);
+        processIncomingData(doc);
+      },
+      onProtocol: (doc) => {
+        console.log("[main] 🔌 Protocol message:", doc.type);
+        win == null ? void 0 : win.webContents.send("display:protocol", doc);
+      },
+      onSystem: (doc) => {
+        console.log("[main] ⚙️ System message:", doc.type);
+        win == null ? void 0 : win.webContents.send("display:system", doc);
+      }
+    });
+    await jrWs.start();
+    console.log("[main] ✅ Helper_WebSocket started on :81");
+    await startMDNSService();
+    win == null ? void 0 : win.webContents.send("ws-status", { ok: true, message: "WebSocket server started on :81" });
+  } catch (helperErr) {
+    console.error("[main] Helper_WebSocket failed:", helperErr);
+    win == null ? void 0 : win.webContents.send("ws-status", { ok: false, message: `Failed to start WebSocket: ${String(helperErr)}` });
   }
 }
 function stopWebSocketServer() {
@@ -611,14 +667,10 @@ ipcMain.handle("ws-stats", () => {
     return null;
   }
 });
-ipcMain.on("open-visualization", (event) => {
+ipcMain.on("open-visualization", (event, options = {}) => {
   try {
-    kioskWindow = new BrowserWindow({
-      fullscreen: true,
-      frame: false,
-      alwaysOnTop: true,
-      skipTaskbar: true,
-      resizable: false,
+    console.log("[main] 🎨 Opening visualization window with options:", options);
+    const windowOptions = {
       webPreferences: {
         preload: path.join(__dirname, "preload.mjs"),
         contextIsolation: true,
@@ -626,15 +678,44 @@ ipcMain.on("open-visualization", (event) => {
         webSecurity: true
       },
       show: false
-    });
-    kioskWindow.setAlwaysOnTop(true, "screen-saver");
+    };
+    if (options.fullscreen !== false) {
+      Object.assign(windowOptions, {
+        fullscreen: true,
+        frame: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        resizable: false
+      });
+    } else {
+      Object.assign(windowOptions, {
+        width: 1e3,
+        height: 700,
+        frame: true,
+        alwaysOnTop: false,
+        skipTaskbar: false,
+        resizable: true,
+        title: "JunctionRelay Visualization (Debug Mode)"
+      });
+    }
+    kioskWindow = new BrowserWindow(windowOptions);
+    if (options.fullscreen !== false) {
+      kioskWindow.setAlwaysOnTop(true, "screen-saver");
+    }
     kioskWindow.on("closed", () => {
+      console.log("[main] 🎨 Visualization window closed");
       kioskWindow = null;
       if (win && !win.isDestroyed()) win.webContents.send("visualization-closed");
     });
-    kioskWindow.once("ready-to-show", () => kioskWindow == null ? void 0 : kioskWindow.show());
+    kioskWindow.once("ready-to-show", () => {
+      console.log("[main] 🎨 Visualization window ready, showing");
+      kioskWindow == null ? void 0 : kioskWindow.show();
+    });
     kioskWindow.webContents.on("before-input-event", (_, input) => {
-      if (input.key === "Escape" && input.type === "keyDown") kioskWindow == null ? void 0 : kioskWindow.close();
+      if (input.key === "Escape" && input.type === "keyDown") {
+        console.log("[main] 🎨 Escape key pressed, closing visualization");
+        kioskWindow == null ? void 0 : kioskWindow.close();
+      }
     });
     if (app.isPackaged) {
       kioskWindow.loadFile(path.join(RENDERER_DIST, "index.html"), {
@@ -648,18 +729,21 @@ ipcMain.on("open-visualization", (event) => {
       });
     }
     event.sender.send("visualization-opened");
+    console.log("[main] ✅ Visualization window opened");
   } catch (error) {
     console.error("Error opening visualization kiosk:", error);
   }
 });
 ipcMain.on("close-visualization", (event) => {
   if (kioskWindow && !kioskWindow.isDestroyed()) {
+    console.log("[main] 🎨 Closing visualization window (IPC request)");
     kioskWindow.close();
     kioskWindow = null;
     event.sender.send("visualization-closed");
   }
 });
 ipcMain.on("quit-app", () => {
+  console.log("[main] 🚪 Quit app requested");
   try {
     stopWebSocketServer();
   } catch {
@@ -668,6 +752,7 @@ ipcMain.on("quit-app", () => {
 });
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
+    console.log("[main] 🚪 All windows closed, quitting app");
     try {
       stopWebSocketServer();
     } catch {
@@ -677,9 +762,13 @@ app.on("window-all-closed", () => {
   }
 });
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  if (BrowserWindow.getAllWindows().length === 0) {
+    console.log("[main] 📱 App activated, creating window");
+    createWindow();
+  }
 });
 app.whenReady().then(() => {
+  console.log("[main] 🚀 App ready, creating main window");
   createWindow();
 });
 export {

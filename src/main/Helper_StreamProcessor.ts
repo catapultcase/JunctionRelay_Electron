@@ -20,7 +20,7 @@ export class Helper_StreamProcessor {
   // Limits (raise if you push big frames)
   private readonly MAX_PAYLOAD_SIZE = 8 * 1024 * 1024; // 8 MB
 
-  // Cached “MAC” equivalent (closest parity to ESP32 getFormattedMacAddress)
+  // Cached "MAC" equivalent (closest parity to ESP32 getFormattedMacAddress)
   private static cachedMac: string | null = null;
 
   constructor(callbacks: StreamProcessorCallbacks) {
@@ -154,6 +154,13 @@ export class Helper_StreamProcessor {
       return;
     }
 
+    // UPDATED: Route rive_config and rive_sensor to Document callback for proper forwarding
+    if (t === "rive_config" || t === "rive_sensor") {
+      console.log(`[StreamProcessor] Routing ${t} to Document callback`);
+      this.callbacks.onDocument?.(doc);
+      return;
+    }
+
     if (t === "sensor" || t === "config") {
       // In the ESP32 this would route to ScreenRouter queues.
       // Here we surface to both: renderer and (optionally) system.
@@ -186,6 +193,7 @@ export class Helper_StreamProcessor {
     }
 
     // Unknown → treat like system
+    console.log(`[StreamProcessor] Unknown message type '${t}', routing to System callback`);
     this.callbacks.onSystem?.(doc);
     this.callbacks.onDocument?.(doc);
   }
@@ -237,7 +245,7 @@ export class Helper_StreamProcessor {
       mac: this.getFormattedMacAddress(),
       ip: Helper_StreamProcessor.getLocalIPv4(),
       uptime: Math.floor(uptime() * 1000),
-      freeHeap: freemem(), // “free-ish” bytes
+      freeHeap: freemem(), // "free-ish" bytes
       firmware: process.env.npm_package_version || "0.0.0",
       platform: platform(),
     };
