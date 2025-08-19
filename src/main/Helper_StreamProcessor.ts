@@ -32,7 +32,7 @@ export class Helper_StreamProcessor {
     return { messagesProcessed: this.messagesProcessed, errorCount: this.errorCount };
   }
 
-  // Entry point — pass every WS message buffer here (text converted to Buffer by caller)
+  // Entry point – pass every WS message buffer here (text converted to Buffer by caller)
   async processData(buf: Buffer): Promise<void> {
     if (!buf || buf.length === 0) return;
 
@@ -59,7 +59,7 @@ export class Helper_StreamProcessor {
       return;
     }
 
-    // Unknown — ignore quietly to match ESP32 tolerance
+    // Unknown – ignore quietly to match ESP32 tolerance
     // (You can console.warn here if preferred)
   }
 
@@ -133,6 +133,44 @@ export class Helper_StreamProcessor {
   }
 
   private forward(doc: JsonDoc, _srcType?: number, _route?: number) {
+    // Enhanced logging for rive messages
+    const t = doc?.type as string | undefined;
+    if (t === "rive_config" || t === "rive_sensor") {
+      console.log(`[StreamProcessor] Processing ${t} for screenId: ${doc.screenId}`);
+      
+      if (t === "rive_config") {
+        // Log enhanced config structure
+        const riveConfig = doc.frameConfig?.frameConfig?.rive || doc.frameConfig?.rive;
+        if (riveConfig?.discovery) {
+          console.log(`[StreamProcessor] Rive discovery: ${riveConfig.discovery.machines.length} machines, ${riveConfig.discovery.metadata.totalInputs} inputs`);
+          riveConfig.discovery.machines.forEach((machine: any) => {
+            console.log(`[StreamProcessor]   Machine "${machine.name}": ${machine.inputs.length} inputs`);
+          });
+        }
+        
+        // Log frame elements with Rive connections
+        const elements = doc.frameConfig?.frameElements || doc.frameElements || [];
+        const elementsWithConnections = elements.filter((el: any) => el.riveConnections?.availableInputs?.length > 0);
+        console.log(`[StreamProcessor] ${elements.length} frame elements, ${elementsWithConnections.length} with Rive connections`);
+      }
+      
+      if (t === "rive_sensor") {
+        // Log enhanced sensor data with comma-separated tags
+        const sensorKeys = Object.keys(doc.sensors || {});
+        const totalTags = sensorKeys.reduce((count, key) => {
+          return count + key.split(',').length;
+        }, 0);
+        console.log(`[StreamProcessor] Sensor data: ${sensorKeys.length} sensor keys expanding to ${totalTags} individual tags`);
+        
+        sensorKeys.forEach(key => {
+          const tags = key.split(',').map(t => t.trim());
+          if (tags.length > 1) {
+            console.log(`[StreamProcessor]   Multi-tag: "${key}" → [${tags.join(', ')}]`);
+          }
+        });
+      }
+    }
+
     // Destination handling parity with ESP32
     const dest = doc?.destination as string | undefined;
     const localMac = Helper_StreamProcessor.getFormattedMacAddress();
@@ -142,21 +180,20 @@ export class Helper_StreamProcessor {
       return;
     }
     if (dest && localMac && dest.toLowerCase() === localMac.toLowerCase()) {
-      // Self — strip destination
+      // Self – strip destination
       delete doc.destination;
     }
 
     // Type-based routing (sensor/config/system/protocol)
-    const t = doc?.type as string | undefined;
     if (!t) {
       this.callbacks.onSystem?.(doc);
       this.callbacks.onDocument?.(doc);
       return;
     }
 
-    // UPDATED: Route rive_config and rive_sensor to Document callback for proper forwarding
+    // Enhanced Rive message routing with better logging
     if (t === "rive_config" || t === "rive_sensor") {
-      console.log(`[StreamProcessor] Routing ${t} to Document callback`);
+      console.log(`[StreamProcessor] Routing ${t} to Document callback for renderer processing`);
       this.callbacks.onDocument?.(doc);
       return;
     }
@@ -230,7 +267,7 @@ export class Helper_StreamProcessor {
     }
     // Fallback to host hash-like
     const h = hostname().toUpperCase();
-    // Create pseudo-MAC AA:— from hostname chars
+    // Create pseudo-MAC AA:– from hostname chars
     const pad = (s: string) => s.padEnd(12, "0").slice(0, 12);
     const hex = Buffer.from(pad(h)).toString("hex").slice(0, 12).toUpperCase();
     this.cachedMac = hex.match(/.{1,2}/g)?.join(":") ?? "00:00:00:00:00:00";

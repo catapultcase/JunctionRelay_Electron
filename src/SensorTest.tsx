@@ -1,10 +1,9 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import {
   useRive,
   Layout,
   Fit,
   Alignment,
-  StateMachineInputType,
 } from '@rive-app/react-canvas'
 
 // Google Fonts loader utility
@@ -29,6 +28,32 @@ interface RiveSettings {
   stateMachine?: string;
 }
 
+interface RiveInputRef {
+  name: string;
+  type: string;
+  currentValue: any;
+  ref: any;
+}
+
+interface RiveStateMachine {
+  name: string;
+  inputNames: string[];
+  inputs: RiveInputRef[];
+}
+
+interface RiveDiscovery {
+  machines: RiveStateMachine[];
+  lastUpdate: string;
+  metadata: {
+    totalInputs: number;
+    inputTypeBreakdown: Record<string, number>;
+    discoveryAttempts: number;
+    lastSuccessfulDiscovery: string;
+  };
+  activeStateMachine: string;
+  globalInputMappings: Record<string, any>;
+}
+
 interface RiveConfigItem {
   enabled: boolean;
   file: string;
@@ -38,6 +63,7 @@ interface RiveConfigItem {
   fileData?: string;
   filename?: string;
   embedded?: boolean;
+  discovery?: RiveDiscovery;
 }
 
 interface CanvasConfig {
@@ -59,6 +85,14 @@ interface FrameConfig {
   canvas: CanvasConfig;
   background: BackgroundConfig;
   rive: RiveConfigItem;
+}
+
+interface RiveConnection {
+  machineName: string;
+  inputName: string;
+  inputType: string;
+  currentValue: any;
+  fullKey: string;
 }
 
 interface RiveConfig {
@@ -94,6 +128,11 @@ interface RiveConfig {
         [key: string]: any;
       };
       lastModified?: string;
+      riveConnections?: {
+        availableInputs: RiveConnection[];
+        mappedInputs: RiveConnection[];
+        lastMappingUpdate: string;
+      };
     }>;
   };
   frameElements?: Array<{
@@ -119,6 +158,11 @@ interface RiveConfig {
       [key: string]: any;
     };
     lastModified?: string;
+    riveConnections?: {
+      availableInputs: RiveConnection[];
+      mappedInputs: RiveConnection[];
+      lastMappingUpdate: string;
+    };
   }>;
   riveFile?: string;
   riveEmbedInPayload?: boolean;
@@ -144,6 +188,11 @@ interface DisplayElement {
   text?: string;
   currentValue?: string;
   currentUnit?: string;
+  riveConnections?: {
+    availableInputs: RiveConnection[];
+    mappedInputs: RiveConnection[];
+    lastMappingUpdate: string;
+  };
 }
 
 export default function SensorTest() {
@@ -154,10 +203,16 @@ export default function SensorTest() {
   const [riveFileBlob, setRiveFileBlob] = useState<string | null>(null);
   const [isConfigured, setIsConfigured] = useState(false);
 
+  // Rive state machine mappings - maps sensor tags to Rive inputs
+  const [sensorToRiveMap, setSensorToRiveMap] = useState<Record<string, string[]>>({});
+
   // Debug state (remove in production)
   const [debugMessages, setDebugMessages] = useState<string[]>([]);
   const [configMessages, setConfigMessages] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(true);
+
+  // State machine input refs for direct control
+  const stateMachineInputRefs = useRef<Record<string, any>>({});
 
   // Debug helpers
   const addDebugMessage = (message: string) => {
@@ -212,19 +267,19 @@ export default function SensorTest() {
       addConfigMessage(`🔍 file: ${riveConfig.file || 'None'}`);
       addConfigMessage(`🔍 embedded: ${riveConfig.embedded || 'None'}`);
       addConfigMessage(`🔍 fileData length: ${riveConfig.fileData?.length || 0}`);
+      
+      // Log discovery info if available
+      if (riveConfig.discovery) {
+        addConfigMessage(`🎮 Discovery found: ${riveConfig.discovery.machines.length} machines`);
+        riveConfig.discovery.machines.forEach(machine => {
+          addConfigMessage(`  🎯 ${machine.name}: ${machine.inputs.length} inputs`);
+          machine.inputs.forEach(input => {
+            addConfigMessage(`    📊 ${input.name} (${input.type}): ${input.currentValue}`);
+          });
+        });
+      }
     } else {
       addConfigMessage(`❌ No rive config found in nested structure`);
-      addConfigMessage(`🔍 Checking frameConfig structure...`);
-      if (config.frameConfig) {
-        addConfigMessage(`🔍 frameConfig exists, keys: ${Object.keys(config.frameConfig).join(', ')}`);
-        if (config.frameConfig.frameConfig) {
-          addConfigMessage(`🔍 nested frameConfig exists, keys: ${Object.keys(config.frameConfig.frameConfig).join(', ')}`);
-        } else {
-          addConfigMessage(`❌ No nested frameConfig found`);
-        }
-      } else {
-        addConfigMessage(`❌ No frameConfig found at all`);
-      }
     }
     
     if (riveConfig?.fileUrl) {
@@ -237,10 +292,6 @@ export default function SensorTest() {
         const fetchTime = Date.now() - startTime;
         
         addConfigMessage(`📥 Fetch completed in ${fetchTime}ms, status: ${response.status}`);
-        addConfigMessage(`📋 Response headers:`);
-        addConfigMessage(`   Content-Length: ${response.headers.get('Content-Length') || 'Not set'}`);
-        addConfigMessage(`   Content-Type: ${response.headers.get('Content-Type') || 'Not set'}`);
-        addConfigMessage(`   Transfer-Encoding: ${response.headers.get('Transfer-Encoding') || 'Not set'}`);
         
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -250,10 +301,9 @@ export default function SensorTest() {
         const totalTime = Date.now() - startTime;
         
         addConfigMessage(`📥 Blob created: ${blob.size} bytes, total time: ${totalTime}ms`);
-        addConfigMessage(`📊 Expected ~110KB, got ${blob.size} bytes (${((blob.size/110000)*100).toFixed(1)}% of expected)`);
         
         if (blob.size < 10000) {
-          addConfigMessage(`⚠️ File appears truncated - checking first few bytes as text...`);
+          addConfigMessage(`⚠️ File appears small - checking first few bytes as text...`);
           const text = await blob.slice(0, Math.min(blob.size, 200)).text();
           addConfigMessage(`🔍 First 200 chars: ${text}`);
         }
@@ -262,12 +312,10 @@ export default function SensorTest() {
         setRiveFileBlob(blobUrl);
         
         addConfigMessage(`✅ SUCCESS: Rive file downloaded and blob URL created`);
-        addConfigMessage(`🔗 Blob URL: ${blobUrl.substring(0, 50)}...`);
         
         return blobUrl;
       } catch (error) {
         addConfigMessage(`❌ DOWNLOAD FAILED: ${error}`);
-        addConfigMessage(`❌ Error details: ${JSON.stringify(error)}`);
         return null;
       }
     } else if (riveConfig?.fileData && riveConfig?.embedded) {
@@ -294,19 +342,19 @@ export default function SensorTest() {
       // Handle relative file reference
       const fileUrl = `/api/frameengine/rive-files/${riveConfig.file}/content`;
       setRiveFileBlob(fileUrl);
-      addConfigMessage(`🔍 Using relative file: ${fileUrl}`);
+      addConfigMessage(`🔗 Using relative file: ${fileUrl}`);
       return fileUrl;
     } else if (config.riveFile) {
       // Handle top-level file reference
       const fileUrl = `/api/frameengine/rive-files/${config.riveFile}/content`;
       setRiveFileBlob(fileUrl);
-      addConfigMessage(`🔍 Using top-level file: ${fileUrl}`);
+      addConfigMessage(`🔗 Using top-level file: ${fileUrl}`);
       return fileUrl;
     } else {
       // Fallback
       const legacyUrl = '/jr.riv';
       setRiveFileBlob(legacyUrl);
-      addConfigMessage(`🔍 Using fallback: ${legacyUrl}`);
+      addConfigMessage(`🔗 Using fallback: ${legacyUrl}`);
       return legacyUrl;
     }
   };
@@ -323,6 +371,7 @@ export default function SensorTest() {
       properties: element.properties,
       sensorTag: element.properties.sensorTag,
       text: element.properties.text,
+      riveConnections: element.riveConnections,
     }));
     
     const sensorCount = displayElements.filter(e => e.type === 'sensor').length;
@@ -334,31 +383,67 @@ export default function SensorTest() {
     return displayElements;
   };
 
+  // Build sensor tag to Rive input mapping from config
+  const buildSensorToRiveMapping = (config: RiveConfig) => {
+    const mapping: Record<string, string[]> = {};
+    
+    // Get Rive discovery data
+    const riveConfig = config.frameConfig?.frameConfig?.rive || config.frameConfig?.rive;
+    const discovery = riveConfig?.discovery;
+    
+    if (discovery) {
+      addConfigMessage(`🔗 Building sensor-to-Rive mappings from discovery data`);
+      
+      // Extract all available Rive inputs
+      const allRiveInputs: string[] = [];
+      discovery.machines.forEach(machine => {
+        machine.inputs.forEach(input => {
+          const fullKey = `${machine.name}.${input.name}`;
+          allRiveInputs.push(fullKey);
+          addConfigMessage(`  📊 Available Rive input: ${fullKey} (${input.type})`);
+        });
+      });
+      
+      // Also check element-level Rive connections
+      const elements = config.frameConfig?.frameElements || config.frameElements || [];
+      elements.forEach(element => {
+        if (element.properties.sensorTag && element.riveConnections?.availableInputs) {
+          const sensorTag = element.properties.sensorTag;
+          const riveInputs: string[] = [];
+          
+          element.riveConnections.availableInputs.forEach(connection => {
+            const fullKey = connection.fullKey || `${connection.machineName}.${connection.inputName}`;
+            riveInputs.push(fullKey);
+            addConfigMessage(`  🔗 ${sensorTag} -> ${fullKey}`);
+          });
+          
+          if (riveInputs.length > 0) {
+            mapping[sensorTag] = riveInputs;
+          }
+        }
+      });
+    }
+    
+    addConfigMessage(`🔗 Built mappings for ${Object.keys(mapping).length} sensor tags`);
+    setSensorToRiveMap(mapping);
+    return mapping;
+  };
+
   // Process incoming config
   const processConfig = async (config: RiveConfig) => {
     addConfigMessage(`📥 Processing config for screenId: ${config.screenId}`);
     addConfigMessage(`📋 Raw config keys: ${Object.keys(config).join(', ')}`);
     
-    if (config.frameConfig) {
-      addConfigMessage(`📋 frameConfig keys: ${Object.keys(config.frameConfig).join(', ')}`);
-      if (config.frameConfig.frameConfig) {
-        addConfigMessage(`📋 nested frameConfig keys: ${Object.keys(config.frameConfig.frameConfig).join(', ')}`);
-        if (config.frameConfig.frameConfig.rive) {
-          addConfigMessage(`📋 rive keys: ${Object.keys(config.frameConfig.frameConfig.rive).join(', ')}`);
-        }
-      }
-    }
-    
     setRiveConfig(config);
     await processRiveFileData(config);
     extractDisplayElements(config);
+    buildSensorToRiveMapping(config);
     
     setIsConfigured(true);
-    // DON'T auto-hide debug when configured - let user decide
     addConfigMessage("✅ Configuration complete!");
   };
 
-  // Process incoming sensor data
+  // Process incoming sensor data with enhanced comma-separated sensor tag support
   const processSensorData = (sensorPayload: SensorPayload) => {
     if (!riveConfig) {
       addDebugMessage("⚠️ No config loaded, ignoring sensor data");
@@ -371,13 +456,26 @@ export default function SensorTest() {
     }
 
     addDebugMessage(`📊 Processing sensors: ${Object.keys(sensorPayload.sensors).join(', ')}`);
-    setCurrentSensorData(sensorPayload.sensors);
+    
+    // Expand comma-separated sensor tags
+    const expandedSensorData: Record<string, any> = {};
+    
+    Object.entries(sensorPayload.sensors).forEach(([sensorKey, sensorData]) => {
+      // Split sensor key by comma and create individual entries
+      const sensorTags = sensorKey.split(',').map(tag => tag.trim());
+      sensorTags.forEach(tag => {
+        expandedSensorData[tag] = sensorData;
+        addDebugMessage(`📊 Expanded sensor: ${tag} = ${sensorData.value} ${sensorData.unit}`);
+      });
+    });
+    
+    setCurrentSensorData(expandedSensorData);
     
     // Update display elements with new sensor values
     setDisplayElements(prev => 
       prev.map(element => {
         if (element.type === 'sensor' && element.sensorTag) {
-          const sensorData = sensorPayload.sensors[element.sensorTag];
+          const sensorData = expandedSensorData[element.sensorTag];
           if (sensorData) {
             return {
               ...element,
@@ -389,6 +487,47 @@ export default function SensorTest() {
         return element;
       })
     );
+
+    // Update Rive state machine inputs
+    updateRiveInputsFromSensorData(expandedSensorData);
+  };
+
+  // Update Rive state machine inputs based on sensor data
+  const updateRiveInputsFromSensorData = (sensorData: Record<string, any>) => {
+    if (!rive || Object.keys(stateMachineInputRefs.current).length === 0) {
+      addDebugMessage("⚠️ Rive not ready or no state machine inputs available");
+      return;
+    }
+
+    Object.entries(sensorData).forEach(([sensorTag, data]) => {
+      // Check if this sensor tag maps to any Rive inputs
+      const riveInputKeys = sensorToRiveMap[sensorTag] || [];
+      
+      riveInputKeys.forEach(riveInputKey => {
+        const inputRef = stateMachineInputRefs.current[riveInputKey];
+        if (inputRef) {
+          try {
+            const newValue = Number(data.value) || 0;
+            inputRef.value = newValue;
+            addDebugMessage(`🔄 Updated Rive "${riveInputKey}" = ${newValue} (from sensor "${sensorTag}")`);
+          } catch (error) {
+            addDebugMessage(`⚠️ Error updating Rive input "${riveInputKey}": ${error}`);
+          }
+        }
+      });
+
+      // Also check for direct sensor tag to Rive input matching (backwards compatibility)
+      const directInputRef = stateMachineInputRefs.current[sensorTag];
+      if (directInputRef) {
+        try {
+          const newValue = Number(data.value) || 0;
+          directInputRef.value = newValue;
+          addDebugMessage(`🔄 Updated Rive "${sensorTag}" = ${newValue} (direct match)`);
+        } catch (error) {
+          addDebugMessage(`⚠️ Error updating Rive input "${sensorTag}": ${error}`);
+        }
+      }
+    });
   };
 
   // IPC event listeners
@@ -428,16 +567,15 @@ export default function SensorTest() {
       window.ipcRenderer?.off("rive-sensor-data", handleSensorData);
       window.ipcRenderer?.off("display:json", handleDisplayJson);
     };
-  }, [riveConfig]);
+  }, [riveConfig, sensorToRiveMap]);
 
-  // Set up Rive - Fixed useRive options type
+  // Set up Rive
   const riveOptions = useMemo(() => ({
     src: riveFileBlob || '',
     autoplay: true,
     layout: new Layout({ fit: Fit.Contain, alignment: Alignment.Center }),
     onLoad: () => {
       addConfigMessage(`✅ Rive loaded successfully!`);
-      // Fixed: Check if rive has artboardNames property
       if (rive && 'artboardNames' in rive && Array.isArray(rive.artboardNames)) {
         addConfigMessage(`🎨 Artboards: ${rive.artboardNames.join(', ')}`);
       } else {
@@ -452,59 +590,60 @@ export default function SensorTest() {
     onLoadError: (error: any) => {
       addConfigMessage(`❌ Rive load error: ${error}`);
       addConfigMessage(`🔍 Attempted to load: ${riveFileBlob}`);
-      addConfigMessage(`🔍 File size was: 634 bytes (seems small for Rive file)`);
     },
   }), [riveFileBlob]);
 
   const { rive, RiveComponent } = useRive(riveOptions);
 
-  // Get state machine inputs
-  const stateMachineInputs = useMemo(() => {
-    if (!rive) return {};
-    
-    try {
-      // Try to get state machine from config or use first available
-      const configStateMachine = riveConfig?.frameConfig?.frameConfig?.rive?.settings?.stateMachine || 
-                                 riveConfig?.frameConfig?.rive?.settings?.stateMachine;
-      
-      const stateMachine = configStateMachine || rive.stateMachineNames?.[0];
-      
-      if (!stateMachine) return {};
-      
-      const inputs = rive.stateMachineInputs(stateMachine);
-      const inputMap: Record<string, any> = {};
-      
-      inputs.forEach((input: any) => {
-        inputMap[input.name] = input;
-      });
-      
-      if (Object.keys(inputMap).length > 0) {
-        addDebugMessage(`🎛️ Rive inputs: ${Object.keys(inputMap).join(', ')}`);
-      }
-      
-      return inputMap;
-    } catch (error) {
-      addDebugMessage(`⚠️ Error getting state machine inputs: ${error}`);
-      return {};
-    }
-  }, [rive, riveConfig]);
-
-  // Update Rive inputs when sensor data changes
+  // Build state machine input references when Rive loads
   useEffect(() => {
-    if (!rive || Object.keys(stateMachineInputs).length === 0 || Object.keys(currentSensorData).length === 0) return;
+    if (!rive) return;
 
-    try {
-      Object.entries(currentSensorData).forEach(([sensorTag, sensorData]) => {
-        const input = stateMachineInputs[sensorTag];
-        if (input && input.type === StateMachineInputType.Number) {
-          input.value = Number(sensorData.value) || 0;
-          addDebugMessage(`🔄 Updated Rive "${sensorTag}" = ${sensorData.value}`);
+    const buildInputRefs = () => {
+      const inputRefs: Record<string, any> = {};
+      
+      try {
+        // Get all state machines
+        const stateMachineNames = rive.stateMachineNames || [];
+        
+        stateMachineNames.forEach(machineName => {
+          try {
+            // Start the state machine to ensure inputs are available
+            rive.play(machineName);
+            
+            // Get inputs for this state machine
+            const inputs = rive.stateMachineInputs(machineName) || [];
+            
+            inputs.forEach((input: any) => {
+              if (input && input.name) {
+                const fullKey = `${machineName}.${input.name}`;
+                inputRefs[fullKey] = input;
+                inputRefs[input.name] = input; // Also store by input name for backwards compatibility
+                
+                addDebugMessage(`🎛️ Registered Rive input: ${fullKey} (type: ${input.type})`);
+              }
+            });
+          } catch (error) {
+            addDebugMessage(`⚠️ Error processing state machine "${machineName}": ${error}`);
+          }
+        });
+        
+        stateMachineInputRefs.current = inputRefs;
+        addConfigMessage(`🎛️ Built ${Object.keys(inputRefs).length} input references`);
+        
+        // Apply any existing sensor data to the new input refs
+        if (Object.keys(currentSensorData).length > 0) {
+          updateRiveInputsFromSensorData(currentSensorData);
         }
-      });
-    } catch (error) {
-      addDebugMessage(`⚠️ Error updating Rive inputs: ${error}`);
-    }
-  }, [rive, stateMachineInputs, currentSensorData]);
+      } catch (error) {
+        addConfigMessage(`❌ Error building state machine inputs: ${error}`);
+      }
+    };
+
+    // Build input refs with a slight delay to ensure Rive is fully loaded
+    const timer = setTimeout(buildInputRefs, 100);
+    return () => clearTimeout(timer);
+  }, [rive, currentSensorData]);
 
   // Render overlay elements
   const renderOverlayElements = () => {
@@ -545,7 +684,6 @@ export default function SensorTest() {
             width: element.position.width,
             height: element.position.height,
             fontSize: `${fontSize}px`,
-            // FIXED: Proper font-family fallback chain with quotes
             fontFamily: `"${fontFamily}", "Orbitron", "Courier New", monospace, sans-serif`,
             color: textColor,
             fontWeight: fontWeight,
@@ -590,7 +728,8 @@ export default function SensorTest() {
           <div>Elements: {displayElements.length}</div>
           <div>Sensors: {Object.keys(currentSensorData).length}</div>
           <div>IPC: {window.ipcRenderer ? '✅' : '❌'}</div>
-          <div>Rive Inputs: {Object.keys(stateMachineInputs).length}</div>
+          <div>Rive Inputs: {Object.keys(stateMachineInputRefs.current).length}</div>
+          <div>Sensor-Rive Mappings: {Object.keys(sensorToRiveMap).length}</div>
         </div>
 
         <div style={{ marginBottom: '20px', display: 'flex', gap: '20px' }}>
@@ -634,6 +773,35 @@ export default function SensorTest() {
               {Object.entries(currentSensorData).map(([key, data]: [string, any]) => (
                 <div key={key} style={{ marginBottom: '5px' }}>
                   <span style={{ color: '#0ff' }}>{key}:</span> {data.value} {data.unit}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {Object.keys(sensorToRiveMap).length > 0 && (
+          <div style={{ marginBottom: '20px' }}>
+            <h3 style={{ color: '#f0f', margin: '0 0 10px 0' }}>🔗 Sensor-to-Rive Mappings</h3>
+            <div style={{ backgroundColor: '#111', padding: '10px', borderRadius: '4px' }}>
+              {Object.entries(sensorToRiveMap).map(([sensorTag, riveInputs]) => (
+                <div key={sensorTag} style={{ marginBottom: '5px' }}>
+                  <span style={{ color: '#0ff' }}>{sensorTag}:</span> {riveInputs.join(', ')}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {Object.keys(stateMachineInputRefs.current).length > 0 && (
+          <div style={{ marginBottom: '20px' }}>
+            <h3 style={{ color: '#0f0', margin: '0 0 10px 0' }}>🎛️ Available Rive Inputs</h3>
+            <div style={{ backgroundColor: '#111', padding: '10px', borderRadius: '4px', maxHeight: '150px', overflow: 'auto' }}>
+              {Object.keys(stateMachineInputRefs.current).map(inputKey => (
+                <div key={inputKey} style={{ marginBottom: '2px', fontSize: '11px' }}>
+                  <span style={{ color: '#0f0' }}>{inputKey}</span>
+                  {stateMachineInputRefs.current[inputKey].value !== undefined && (
+                    <span style={{ color: '#999' }}> = {stateMachineInputRefs.current[inputKey].value}</span>
+                  )}
                 </div>
               ))}
             </div>
@@ -731,7 +899,7 @@ export default function SensorTest() {
       >
         {riveConfig?.screenId} | E:{displayElements.length} | S:{Object.keys(currentSensorData).length}
         <br />
-        Rive: {riveFileBlob ? '✅' : '❌'} | Click Debug button
+        Rive: {riveFileBlob ? '✅' : '❌'} | Inputs: {Object.keys(stateMachineInputRefs.current).length} | Click Debug
       </div>
     </div>
   );

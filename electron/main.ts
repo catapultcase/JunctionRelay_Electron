@@ -94,24 +94,56 @@ function createWindow() {
   }
 }
 
-// Enhanced sensor and config data processing
+// Enhanced sensor and config data processing with better Rive support
 function processIncomingData(doc: Record<string, any>) {
   console.log("[main] Processing document type:", doc.type);
 
-  // Handle Rive configuration payloads
+  // Handle enhanced Rive configuration payloads
   if (doc.type === "rive_config") {
-    console.log("[main] 📋 Received Rive configuration for screenId:", doc.screenId);
-    console.log("[main] 📋 Config details:", {
-      canvasSize: doc.frameConfig?.canvas ? `${doc.frameConfig.canvas.width}x${doc.frameConfig.canvas.height}` : 'unknown',
-      riveFile: doc.frameConfig?.rive?.file || 'none',
-      riveEmbedded: doc.frameConfig?.rive?.embedded || false,
-      elementCount: doc.frameElements?.length || 0
-    });
+    console.log("[main] 📋 Received enhanced Rive configuration for screenId:", doc.screenId);
+    
+    // Log enhanced config details
+    const riveConfig = doc.frameConfig?.frameConfig?.rive || doc.frameConfig?.rive;
+    if (riveConfig) {
+      console.log("[main] 📋 Config details:", {
+        canvasSize: doc.frameConfig?.canvas ? `${doc.frameConfig.canvas.width}x${doc.frameConfig.canvas.height}` : 'unknown',
+        riveFile: riveConfig.file || 'none',
+        riveFileUrl: riveConfig.fileUrl || 'none',
+        riveEmbedded: riveConfig.embedded || false,
+        elementCount: doc.frameElements?.length || 0,
+        hasDiscovery: !!riveConfig.discovery,
+        stateMachines: riveConfig.discovery?.machines?.length || 0,
+        totalInputs: riveConfig.discovery?.metadata?.totalInputs || 0
+      });
+      
+      // Log state machine discovery details
+      if (riveConfig.discovery?.machines) {
+        console.log("[main] 🎮 State machine discovery:");
+        riveConfig.discovery.machines.forEach((machine: any) => {
+          console.log(`[main]   🎯 ${machine.name}: ${machine.inputs.length} inputs`);
+          machine.inputs.forEach((input: any) => {
+            console.log(`[main]     📊 ${input.name} (${input.type}): ${input.currentValue}`);
+          });
+        });
+      }
+      
+      // Log frame elements with Rive connections
+      const elements = doc.frameConfig?.frameElements || doc.frameElements || [];
+      const elementsWithConnections = elements.filter((el: any) => el.riveConnections?.availableInputs?.length > 0);
+      console.log(`[main] 📐 Frame elements: ${elements.length} total, ${elementsWithConnections.length} with Rive connections`);
+      
+      elementsWithConnections.forEach((element: any) => {
+        console.log(`[main]   🔗 ${element.properties.sensorTag || element.id}: ${element.riveConnections.availableInputs.length} Rive connections`);
+        element.riveConnections.availableInputs.forEach((conn: any) => {
+          console.log(`[main]     ⚡ ${conn.fullKey} (${conn.inputType})`);
+        });
+      });
+    }
     
     // Forward config to visualization window
     if (kioskWindow && !kioskWindow.isDestroyed()) {
       kioskWindow.webContents.send("rive-config", doc);
-      console.log("[main] ✅ Rive config forwarded to visualization window");
+      console.log("[main] ✅ Enhanced Rive config forwarded to visualization window");
     }
     
     // Also forward to main window for debugging
@@ -122,22 +154,36 @@ function processIncomingData(doc: Record<string, any>) {
     return;
   }
 
-  // Handle Rive sensor data payloads
+  // Handle enhanced Rive sensor data payloads with comma-separated tags
   if (doc.type === "rive_sensor") {
-    console.log("[main] 📊 Received Rive sensor data for screenId:", doc.screenId);
-    console.log("[main] 📊 Sensor tags:", Object.keys(doc.sensors || {}));
+    console.log("[main] 📊 Received enhanced Rive sensor data for screenId:", doc.screenId);
     
-    // Log sensor values for debugging
-    if (doc.sensors) {
-      Object.entries(doc.sensors).forEach(([tag, data]: [string, any]) => {
-        console.log(`[main] 📊   ${tag}: ${data.value} ${data.unit}`);
-      });
-    }
+    // Process comma-separated sensor tags
+    const sensorKeys = Object.keys(doc.sensors || {});
+    const expandedSensorCount = sensorKeys.reduce((count, key) => {
+      return count + key.split(',').length;
+    }, 0);
+    
+    console.log("[main] 📊 Sensor payload analysis:");
+    console.log(`[main]   📦 ${sensorKeys.length} sensor keys expanding to ${expandedSensorCount} individual tags`);
+    
+    // Log each sensor key and its expansion
+    sensorKeys.forEach(sensorKey => {
+      const sensorData = doc.sensors[sensorKey];
+      const tags = sensorKey.split(',').map((tag: string) => tag.trim());
+      
+      if (tags.length > 1) {
+        console.log(`[main]   🔀 Multi-tag "${sensorKey}" → [${tags.join(', ')}]`);
+        console.log(`[main]     📊 Value: ${sensorData.value} ${sensorData.unit}`);
+      } else {
+        console.log(`[main]   📊 ${sensorKey}: ${sensorData.value} ${sensorData.unit}`);
+      }
+    });
     
     // Forward sensor data to visualization window
     if (kioskWindow && !kioskWindow.isDestroyed()) {
       kioskWindow.webContents.send("rive-sensor-data", doc);
-      console.log("[main] ✅ Rive sensor data forwarded to visualization window");
+      console.log("[main] ✅ Enhanced Rive sensor data forwarded to visualization window");
     }
     
     // Also forward to main window for debugging
@@ -183,6 +229,9 @@ function processIncomingData(doc: Record<string, any>) {
 
   // Log unknown message types for debugging
   console.log(`[main] ❓ Unknown message type: ${doc.type}`);
+  if (doc.type) {
+    console.log(`[main] 📋 Message keys: ${Object.keys(doc).join(', ')}`);
+  }
 }
 
 async function startMDNSService() {
@@ -249,7 +298,7 @@ async function startWebSocketServer() {
         // Send to main window for debugging
         win?.webContents.send("display:json", doc);
         
-        // Process both legacy and new data formats
+        // Process both legacy and enhanced data formats
         processIncomingData(doc);
       },
       onProtocol: (doc: Record<string, any>) => {
