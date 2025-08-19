@@ -7,6 +7,20 @@ import {
   StateMachineInputType,
 } from '@rive-app/react-canvas'
 
+// Google Fonts loader utility
+const loadGoogleFont = (fontFamily: string) => {
+  // Skip if it's a system font or already loaded
+  if (!fontFamily || fontFamily.includes('system') || fontFamily.includes('sans-serif') ||
+      document.querySelector(`link[href*="${fontFamily.replace(/\s+/g, '+')}"]`)) {
+    return;
+  }
+
+  const link = document.createElement('link');
+  link.href = `https://fonts.googleapis.com/css2?family=${fontFamily.replace(/\s+/g, '+')}:wght@100;200;300;400;500;600;700;800;900&display=swap`;
+  link.rel = 'stylesheet';
+  document.head.appendChild(link);
+};
+
 interface RiveSettings {
   fit: string;
   alignment: string;
@@ -155,6 +169,20 @@ export default function SensorTest() {
     console.log(`[SensorTest-Config] ${message}`);
     setConfigMessages(prev => [...prev.slice(-9), `${new Date().toLocaleTimeString()}: ${message}`]);
   };
+
+  // Load Google Fonts when elements change
+  useEffect(() => {
+    const fontsToLoad = new Set<string>();
+
+    displayElements.forEach(element => {
+      const fontFamily = element.properties.fontFamily;
+      if (fontFamily && fontFamily !== 'Inter' && !fontFamily.includes('system')) {
+        fontsToLoad.add(fontFamily);
+      }
+    });
+
+    fontsToLoad.forEach(loadGoogleFont);
+  }, [displayElements]);
 
   // Get canvas dimensions and background from config
   const getCanvasConfig = (config: RiveConfig) => {
@@ -502,6 +530,11 @@ export default function SensorTest() {
       const fontWeight = element.properties.fontWeight || '900';
       const textAlign = element.properties.textAlign || 'left';
 
+      // Ensure Google Font is loaded before rendering
+      if (fontFamily && fontFamily !== 'Inter' && !fontFamily.includes('system')) {
+        loadGoogleFont(fontFamily);
+      }
+
       return (
         <div
           key={element.id}
@@ -512,7 +545,8 @@ export default function SensorTest() {
             width: element.position.width,
             height: element.position.height,
             fontSize: `${fontSize}px`,
-            fontFamily: `'${fontFamily}', sans-serif`,
+            // FIXED: Proper font-family fallback chain with quotes
+            fontFamily: `"${fontFamily}", "Orbitron", "Courier New", monospace, sans-serif`,
             color: textColor,
             fontWeight: fontWeight,
             textShadow: '0 0 6px rgba(0,0,0,0.8)',
