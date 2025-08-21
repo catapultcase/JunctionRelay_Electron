@@ -10,6 +10,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 let jrWs: Helper_WebSocket | null = null;
 let mdnsService: any = null;
 
+// Storage for user preferences
+let userPreferences = {
+  fullscreenMode: true // Default to fullscreen
+};
+
 // ---------- Version helper: read from package.json (fallback to app.getVersion) ----------
 function getAppVersion(): string {
   try {
@@ -72,10 +77,28 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 
 let win: BrowserWindow | null
 let kioskWindow: BrowserWindow | null = null
+let debugWindow: BrowserWindow | null = null
+
+// Buffer for the last config to send to new windows
+let lastRiveConfig: any = null
+
+// Helper to safely send to window when ready
+function safelySendToWindow(window: BrowserWindow | null, channel: string, data: any) {
+  if (window && !window.isDestroyed()) {
+    try {
+      window.webContents.send(channel, data);
+      return true;
+    } catch (error) {
+      console.error(`[main] Error sending ${channel} to window:`, error);
+      return false;
+    }
+  }
+  return false;
+}
 
 function createWindow() {
   win = new BrowserWindow({
-    icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
+    icon: path.join(process.env.VITE_PUBLIC, 'jr_platinum.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
@@ -101,6 +124,9 @@ function processIncomingData(doc: Record<string, any>) {
   // Handle enhanced Rive configuration payloads
   if (doc.type === "rive_config") {
     console.log("[main] 📋 Received enhanced Rive configuration for screenId:", doc.screenId);
+    
+    // Store the latest config for new windows
+    lastRiveConfig = doc;
     
     // Log enhanced config details
     const riveConfig = doc.frameConfig?.frameConfig?.rive || doc.frameConfig?.rive;
@@ -140,17 +166,12 @@ function processIncomingData(doc: Record<string, any>) {
       });
     }
     
-    // Forward config to visualization window
-    if (kioskWindow && !kioskWindow.isDestroyed()) {
-      kioskWindow.webContents.send("rive-config", doc);
-      console.log("[main] ✅ Enhanced Rive config forwarded to visualization window");
-    }
+    // Forward config to all windows
+    safelySendToWindow(kioskWindow, "rive-config", doc);
+    safelySendToWindow(debugWindow, "rive-config", doc);
+    safelySendToWindow(win, "rive-config", doc);
     
-    // Also forward to main window for debugging
-    if (win && !win.isDestroyed()) {
-      win.webContents.send("rive-config", doc);
-    }
-    
+    console.log("[main] ✅ Enhanced Rive config forwarded to all windows");
     return;
   }
 
@@ -180,17 +201,12 @@ function processIncomingData(doc: Record<string, any>) {
       }
     });
     
-    // Forward sensor data to visualization window
-    if (kioskWindow && !kioskWindow.isDestroyed()) {
-      kioskWindow.webContents.send("rive-sensor-data", doc);
-      console.log("[main] ✅ Enhanced Rive sensor data forwarded to visualization window");
-    }
+    // Forward sensor data to all windows
+    safelySendToWindow(kioskWindow, "rive-sensor-data", doc);
+    safelySendToWindow(debugWindow, "rive-sensor-data", doc);
+    safelySendToWindow(win, "rive-sensor-data", doc);
     
-    // Also forward to main window for debugging
-    if (win && !win.isDestroyed()) {
-      win.webContents.send("rive-sensor-data", doc);
-    }
-    
+    console.log("[main] ✅ Enhanced Rive sensor data forwarded to all windows");
     return;
   }
 
@@ -362,6 +378,17 @@ ipcMain.on('open-external', (_, url) => {
 // IPC: app version for renderer, read from package.json
 ipcMain.handle('get-app-version', () => getAppVersion())
 
+// IPC: fullscreen preference storage
+ipcMain.handle('get-fullscreen-preference', () => {
+  console.log(`[main] Retrieved fullscreen preference: ${userPreferences.fullscreenMode}`);
+  return userPreferences.fullscreenMode;
+});
+
+ipcMain.on('save-fullscreen-preference', (_, preference: boolean) => {
+  userPreferences.fullscreenMode = preference;
+  console.log(`[main] ✅ Saved fullscreen preference: ${preference}`);
+});
+
 // WebSocket IPC handlers
 ipcMain.on("start-ws", () => {
   startWebSocketServer();
@@ -375,10 +402,90 @@ ipcMain.handle("ws-stats", () => {
   try { return jrWs?.getStats?.() ?? null; } catch { return null; }
 });
 
+// Debug Window IPC handlers
+ipcMain.on("open-debug-window", () => {
+  try {
+    console.log("[main] 🔍 Opening debug window");
+    
+    // If debug window already exists, focus it
+    if (debugWindow && !debugWindow.isDestroyed()) {
+      debugWindow.focus();
+      return;
+    }
+
+    debugWindow = new BrowserWindow({
+      width: 800,
+      height: 600,
+      title: "JunctionRelay Debug Panel",
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.mjs'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        webSecurity: true
+      },
+      show: false
+    });
+
+    debugWindow.on("closed", () => {
+      console.log("[main] 🔍 Debug window closed");
+      debugWindow = null;
+      if (win && !win.isDestroyed()) win.webContents.send("debug-window-closed");
+    });
+
+    debugWindow.once("ready-to-show", () => {
+      console.log("[main] 🔍 Debug window ready, showing");
+      debugWindow?.show();
+      
+      // Send any existing config data to the new debug window
+      setTimeout(() => {
+        if (lastRiveConfig && debugWindow && !debugWindow.isDestroyed()) {
+          console.log("[main] 🔍 Sending buffered config to debug window");
+          debugWindow.webContents.send("rive-config", lastRiveConfig);
+        }
+      }, 500); // Give window time to fully load
+    });
+
+    // Load with debug=true parameter
+    if (app.isPackaged) {
+      debugWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), {
+        query: { debug: "true" }
+      });
+    } else if (VITE_DEV_SERVER_URL) {
+      debugWindow.loadURL(VITE_DEV_SERVER_URL + "?debug=true");
+    } else {
+      debugWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), {
+        query: { debug: "true" }
+      });
+    }
+
+    if (win && !win.isDestroyed()) win.webContents.send("debug-window-opened");
+    console.log("[main] ✅ Debug window opened");
+  } catch (error) {
+    console.error("Error opening debug window:", error);
+  }
+});
+
+ipcMain.on("close-debug-window", () => {
+  if (debugWindow && !debugWindow.isDestroyed()) {
+    console.log("[main] 🔍 Closing debug window (IPC request)");
+    debugWindow.close();
+    debugWindow = null;
+    if (win && !win.isDestroyed()) win.webContents.send("debug-window-closed");
+  }
+});
+
 // IPC: open kiosk visualization
 ipcMain.on('open-visualization', (event, options = {}) => {
   try {
     console.log("[main] 🎨 Opening visualization window with options:", options);
+    
+    // If visualization window already exists, focus it instead of creating new one
+    if (kioskWindow && !kioskWindow.isDestroyed()) {
+      console.log("[main] 🎨 Visualization window already exists, focusing it");
+      kioskWindow.focus();
+      event.sender.send('visualization-opened');
+      return;
+    }
     
     const windowOptions = {
       webPreferences: {
@@ -401,15 +508,31 @@ ipcMain.on('open-visualization', (event, options = {}) => {
         resizable: false,
       });
     } else {
-      // Windowed mode for debugging
+      // Windowed mode - use canvas dimensions if available
+      let windowWidth = 1000;
+      let windowHeight = 700;
+      
+      if (lastRiveConfig) {
+        const canvas = lastRiveConfig.frameConfig?.frameConfig?.canvas || lastRiveConfig.frameConfig?.canvas;
+        if (canvas && canvas.width && canvas.height) {
+          windowWidth = canvas.width;
+          windowHeight = canvas.height;
+          console.log(`[main] 🎨 Using canvas dimensions: ${windowWidth}x${windowHeight}`);
+        } else {
+          console.log(`[main] 🎨 No canvas dimensions found, using default: ${windowWidth}x${windowHeight}`);
+        }
+      } else {
+        console.log(`[main] 🎨 No config available, using default dimensions: ${windowWidth}x${windowHeight}`);
+      }
+      
       Object.assign(windowOptions, {
-        width: 1000,
-        height: 700,
+        width: windowWidth,
+        height: windowHeight,
         frame: true,
         alwaysOnTop: false,
         skipTaskbar: false,
         resizable: true,
-        title: 'JunctionRelay Visualization (Debug Mode)',
+        title: `JunctionRelay Visualization (${windowWidth}×${windowHeight})`,
       });
     }
 
@@ -428,6 +551,14 @@ ipcMain.on('open-visualization', (event, options = {}) => {
     kioskWindow.once('ready-to-show', () => {
       console.log("[main] 🎨 Visualization window ready, showing");
       kioskWindow?.show()
+      
+      // Send any existing config data to the new visualization window
+      setTimeout(() => {
+        if (lastRiveConfig && kioskWindow && !kioskWindow.isDestroyed()) {
+          console.log("[main] 🎨 Sending buffered config to visualization window");
+          kioskWindow.webContents.send("rive-config", lastRiveConfig);
+        }
+      }, 500); // Give window time to fully load
     })
 
     kioskWindow.webContents.on('before-input-event', (_, input) => {
