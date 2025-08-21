@@ -1,179 +1,221 @@
-var he = Object.defineProperty;
-var ye = (s, e, n) => e in s ? he(s, e, { enumerable: !0, configurable: !0, writable: !0, value: n }) : s[e] = n;
-var v = (s, e, n) => ye(s, typeof e != "symbol" ? e + "" : e, n);
-import { app as h, session as we, ipcMain as b, shell as ve, BrowserWindow as J, screen as ce } from "electron";
-import { fileURLToPath as Se } from "node:url";
-import f from "node:path";
-import j from "node:fs";
-import { gunzip as be } from "zlib";
-import { networkInterfaces as F, hostname as de, platform as ge, freemem as me, uptime as ue } from "os";
-import { promisify as Ce } from "util";
-const le = Ce(be), A = class A {
-  constructor(e) {
-    v(this, "callbacks");
-    v(this, "messagesProcessed", 0);
-    v(this, "errorCount", 0);
+var __defProp = Object.defineProperty;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+import { app, session, ipcMain, shell, BrowserWindow, screen } from "electron";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import fs from "node:fs";
+import { gunzip } from "zlib";
+import { networkInterfaces, hostname, platform, freemem, uptime } from "os";
+import { promisify } from "util";
+const pGunzip = promisify(gunzip);
+const _Helper_StreamProcessor = class _Helper_StreamProcessor {
+  constructor(callbacks) {
+    __publicField(this, "callbacks");
+    __publicField(this, "messagesProcessed", 0);
+    __publicField(this, "errorCount", 0);
     // Limits (raise if you push big frames)
-    v(this, "MAX_PAYLOAD_SIZE", 8 * 1024 * 1024);
-    this.callbacks = e;
+    __publicField(this, "MAX_PAYLOAD_SIZE", 8 * 1024 * 1024);
+    this.callbacks = callbacks;
   }
   // Public stats (optional)
   getStats() {
     return { messagesProcessed: this.messagesProcessed, errorCount: this.errorCount };
   }
   // Entry point – pass every WS message buffer here (text converted to Buffer by caller)
-  async processData(e) {
-    if (!(!e || e.length === 0)) {
-      if (e[0] === 123) {
-        this.handleRawJSON(e);
-        return;
+  async processData(buf) {
+    if (!buf || buf.length === 0) return;
+    if (buf[0] === 123) {
+      this.handleRawJSON(buf);
+      return;
+    }
+    if (buf.length >= 2 && buf[0] === 31 && buf[1] === 139) {
+      await this.handleRawGzip(buf);
+      return;
+    }
+    if (buf.length >= 8 && this.isAllAsciiDigits(buf.slice(0, 8))) {
+      try {
+        await this.handlePrefixed(buf);
+      } catch (e) {
+        console.error("[StreamProcessor] ERROR handling prefixed payload:", e);
+        this.errorCount++;
       }
-      if (e.length >= 2 && e[0] === 31 && e[1] === 139) {
-        await this.handleRawGzip(e);
-        return;
-      }
-      if (e.length >= 8 && this.isAllAsciiDigits(e.slice(0, 8))) {
-        try {
-          await this.handlePrefixed(e);
-        } catch (n) {
-          console.error("[StreamProcessor] ERROR handling prefixed payload:", n), this.errorCount++;
-        }
-        return;
-      }
+      return;
     }
   }
   // ---------- Private ----------
-  handleRawJSON(e) {
-    const n = this.tryParseJSON(e);
-    n && (this.forward(n), this.messagesProcessed++);
+  handleRawJSON(buf) {
+    const doc = this.tryParseJSON(buf);
+    if (!doc) return;
+    this.forward(doc);
+    this.messagesProcessed++;
   }
-  async handleRawGzip(e) {
+  async handleRawGzip(buf) {
     try {
-      const n = await le(e), t = this.tryParseJSON(n);
-      if (!t) return;
+      const out = await pGunzip(buf);
+      const doc = this.tryParseJSON(out);
+      if (!doc) return;
       this.forward(
-        t,
+        doc,
         /*srcType*/
         3
-      ), this.messagesProcessed++;
-    } catch (n) {
-      console.error("[StreamProcessor] ERROR: Failed to gunzip raw gzip:", n.message), this.errorCount++;
+      );
+      this.messagesProcessed++;
+    } catch (e) {
+      console.error("[StreamProcessor] ERROR: Failed to gunzip raw gzip:", e.message);
+      this.errorCount++;
     }
   }
-  async handlePrefixed(e) {
-    const n = parseInt(e.toString("ascii", 0, 4), 10), t = parseInt(e.toString("ascii", 4, 6), 10), i = parseInt(e.toString("ascii", 6, 8), 10);
-    if (!(t === 0 || t === 1)) {
-      console.error("[StreamProcessor] ERROR: Invalid type field:", t), this.errorCount++;
+  async handlePrefixed(buf) {
+    const lengthHint = parseInt(buf.toString("ascii", 0, 4), 10);
+    const typeField = parseInt(buf.toString("ascii", 4, 6), 10);
+    const routeField = parseInt(buf.toString("ascii", 6, 8), 10);
+    if (!(typeField === 0 || typeField === 1)) {
+      console.error("[StreamProcessor] ERROR: Invalid type field:", typeField);
+      this.errorCount++;
       return;
     }
-    const o = n > 0 ? n : Math.max(0, e.length - 8);
-    if (o <= 0 || o > this.MAX_PAYLOAD_SIZE) {
-      console.error("[StreamProcessor] ERROR: Invalid/oversize payload length:", o), this.errorCount++;
+    const payloadLen = lengthHint > 0 ? lengthHint : Math.max(0, buf.length - 8);
+    if (payloadLen <= 0 || payloadLen > this.MAX_PAYLOAD_SIZE) {
+      console.error("[StreamProcessor] ERROR: Invalid/oversize payload length:", payloadLen);
+      this.errorCount++;
       return;
     }
-    if (8 + o > e.length) {
-      console.error("[StreamProcessor] ERROR: Incomplete payload:", o, "available:", e.length - 8), this.errorCount++;
+    if (8 + payloadLen > buf.length) {
+      console.error("[StreamProcessor] ERROR: Incomplete payload:", payloadLen, "available:", buf.length - 8);
+      this.errorCount++;
       return;
     }
-    const a = e.slice(8, 8 + o);
-    if (t === 0) {
-      const d = this.tryParseJSON(a);
-      if (!d) return;
+    const payload = buf.slice(8, 8 + payloadLen);
+    if (typeField === 0) {
+      const doc = this.tryParseJSON(payload);
+      if (!doc) return;
       this.forward(
-        d,
+        doc,
         /*srcType*/
         2,
-        i
-      ), this.messagesProcessed++;
-    } else
+        routeField
+      );
+      this.messagesProcessed++;
+    } else {
       try {
-        const d = await le(a), m = this.tryParseJSON(d);
-        if (!m) return;
+        const out = await pGunzip(payload);
+        const doc = this.tryParseJSON(out);
+        if (!doc) return;
         this.forward(
-          m,
+          doc,
           /*srcType*/
           4,
-          i
-        ), this.messagesProcessed++;
-      } catch (d) {
-        console.error("[StreamProcessor] ERROR: Failed to gunzip prefixed gzip:", d.message), this.errorCount++;
+          routeField
+        );
+        this.messagesProcessed++;
+      } catch (e) {
+        console.error("[StreamProcessor] ERROR: Failed to gunzip prefixed gzip:", e.message);
+        this.errorCount++;
       }
+    }
   }
-  forward(e, n, t) {
-    var d, m, p, $, k, c, C, y, u, w, E, G, X, Y, Q, Z, K, ee, se, ne, oe, te, re, ie;
-    const i = e == null ? void 0 : e.type;
-    if (i === "rive_config" || i === "rive_sensor") {
-      if (console.log(`[StreamProcessor] Processing ${i} for screenId: ${e.screenId}`), i === "rive_config") {
-        const P = ((m = (d = e.frameConfig) == null ? void 0 : d.frameConfig) == null ? void 0 : m.rive) || ((p = e.frameConfig) == null ? void 0 : p.rive);
-        P != null && P.discovery && (console.log(`[StreamProcessor] Rive discovery: ${P.discovery.machines.length} machines, ${P.discovery.metadata.totalInputs} inputs`), P.discovery.machines.forEach((R) => {
-          console.log(`[StreamProcessor]   Machine "${R.name}": ${R.inputs.length} inputs`);
-        }));
-        const N = (($ = e.frameConfig) == null ? void 0 : $.frameElements) || e.frameElements || [], I = N.filter((R) => {
-          var L, ae;
-          return ((ae = (L = R.riveConnections) == null ? void 0 : L.availableInputs) == null ? void 0 : ae.length) > 0;
+  forward(doc, _srcType, _route) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C;
+    const t = doc == null ? void 0 : doc.type;
+    if (t === "rive_config" || t === "rive_sensor") {
+      if (t === "rive_config" && _Helper_StreamProcessor.VERBOSE_CONFIG_LOGGING) {
+        console.log(`[StreamProcessor] Processing ${t} for screenId: ${doc.screenId}`);
+        const riveConfig = ((_b = (_a = doc.frameConfig) == null ? void 0 : _a.frameConfig) == null ? void 0 : _b.rive) || ((_c = doc.frameConfig) == null ? void 0 : _c.rive);
+        if (riveConfig == null ? void 0 : riveConfig.discovery) {
+          console.log(`[StreamProcessor] Rive discovery: ${riveConfig.discovery.machines.length} machines, ${riveConfig.discovery.metadata.totalInputs} inputs`);
+          riveConfig.discovery.machines.forEach((machine) => {
+            console.log(`[StreamProcessor]   Machine "${machine.name}": ${machine.inputs.length} inputs`);
+          });
+        }
+        const elements = ((_d = doc.frameConfig) == null ? void 0 : _d.frameElements) || doc.frameElements || [];
+        const elementsWithConnections = elements.filter((el) => {
+          var _a2, _b2;
+          return ((_b2 = (_a2 = el.riveConnections) == null ? void 0 : _a2.availableInputs) == null ? void 0 : _b2.length) > 0;
         });
-        console.log(`[StreamProcessor] ${N.length} frame elements, ${I.length} with Rive connections`);
-      }
-      if (i === "rive_sensor") {
-        const P = Object.keys(e.sensors || {}), N = P.reduce((I, R) => I + R.split(",").length, 0);
-        console.log(`[StreamProcessor] Sensor data: ${P.length} sensor keys expanding to ${N} individual tags`), P.forEach((I) => {
-          const R = I.split(",").map((L) => L.trim());
-          R.length > 1 && console.log(`[StreamProcessor]   Multi-tag: "${I}" → [${R.join(", ")}]`);
-        });
+        console.log(`[StreamProcessor] ${elements.length} frame elements, ${elementsWithConnections.length} with Rive connections`);
       }
     }
-    const o = e == null ? void 0 : e.destination, a = A.getFormattedMacAddress();
-    if (o && a && o.toLowerCase() !== a.toLowerCase()) {
-      (c = (k = this.callbacks).onProtocol) == null || c.call(k, e);
+    const dest = doc == null ? void 0 : doc.destination;
+    const localMac = _Helper_StreamProcessor.getFormattedMacAddress();
+    if (dest && localMac && dest.toLowerCase() !== localMac.toLowerCase()) {
+      (_f = (_e = this.callbacks).onProtocol) == null ? void 0 : _f.call(_e, doc);
       return;
     }
-    if (o && a && o.toLowerCase() === a.toLowerCase() && delete e.destination, !i) {
-      (y = (C = this.callbacks).onSystem) == null || y.call(C, e), (w = (u = this.callbacks).onDocument) == null || w.call(u, e);
+    if (dest && localMac && dest.toLowerCase() === localMac.toLowerCase()) {
+      delete doc.destination;
+    }
+    if (!t) {
+      (_h = (_g = this.callbacks).onSystem) == null ? void 0 : _h.call(_g, doc);
+      (_j = (_i = this.callbacks).onDocument) == null ? void 0 : _j.call(_i, doc);
       return;
     }
-    if (i === "rive_config" || i === "rive_sensor") {
-      console.log(`[StreamProcessor] Routing ${i} to Document callback for renderer processing`), (G = (E = this.callbacks).onDocument) == null || G.call(E, e);
+    if (t === "rive_config" || t === "rive_sensor") {
+      (_l = (_k = this.callbacks).onDocument) == null ? void 0 : _l.call(_k, doc);
       return;
     }
-    if (i === "sensor" || i === "config") {
-      (Y = (X = this.callbacks).onDocument) == null || Y.call(X, e);
+    if (t === "sensor" || t === "config") {
+      (_n = (_m = this.callbacks).onDocument) == null ? void 0 : _n.call(_m, doc);
       return;
     }
-    if (i === "MQTT_Subscription_Request" || i === "websocket_ping" || i === "http_request" || i === "espnow_message" || i === "peer_management") {
-      (Z = (Q = this.callbacks).onProtocol) == null || Z.call(Q, e);
+    if (t === "MQTT_Subscription_Request" || t === "websocket_ping" || t === "http_request" || t === "espnow_message" || t === "peer_management") {
+      (_p = (_o = this.callbacks).onProtocol) == null ? void 0 : _p.call(_o, doc);
       return;
     }
-    if (i === "preferences" || i === "stats" || i === "device_info" || i === "device_capabilities" || i === "system_command") {
-      (ee = (K = this.callbacks).onSystem) == null || ee.call(K, e), (ne = (se = this.callbacks).onDocument) == null || ne.call(se, e);
+    if (t === "preferences" || t === "stats" || t === "device_info" || t === "device_capabilities" || t === "system_command") {
+      (_r = (_q = this.callbacks).onSystem) == null ? void 0 : _r.call(_q, doc);
+      (_t = (_s = this.callbacks).onDocument) == null ? void 0 : _t.call(_s, doc);
       return;
     }
-    console.log(`[StreamProcessor] Unknown message type '${i}', routing to System callback`), (te = (oe = this.callbacks).onSystem) == null || te.call(oe, e), (ie = (re = this.callbacks).onDocument) == null || ie.call(re, e);
+    if (t === "heartbeat-response" || t === "device-connected") {
+      (_v = (_u = this.callbacks).onSystem) == null ? void 0 : _v.call(_u, doc);
+      (_x = (_w = this.callbacks).onDocument) == null ? void 0 : _x.call(_w, doc);
+      return;
+    }
+    if (!((_y = _Helper_StreamProcessor.forward.seenUnknownTypes) == null ? void 0 : _y.has(t))) {
+      if (!_Helper_StreamProcessor.forward.seenUnknownTypes) {
+        _Helper_StreamProcessor.forward.seenUnknownTypes = /* @__PURE__ */ new Set();
+      }
+      _Helper_StreamProcessor.forward.seenUnknownTypes.add(t);
+      console.log(`[StreamProcessor] Unknown message type '${t}', routing to System callback`);
+    }
+    (_A = (_z = this.callbacks).onSystem) == null ? void 0 : _A.call(_z, doc);
+    (_C = (_B = this.callbacks).onDocument) == null ? void 0 : _C.call(_B, doc);
   }
-  tryParseJSON(e) {
+  tryParseJSON(buf) {
     try {
-      return JSON.parse(e.toString("utf8"));
-    } catch (n) {
-      return console.error("[StreamProcessor] ERROR: JSON parse failed:", n.message), this.errorCount++, null;
+      return JSON.parse(buf.toString("utf8"));
+    } catch (e) {
+      console.error("[StreamProcessor] ERROR: JSON parse failed:", e.message);
+      this.errorCount++;
+      return null;
     }
   }
-  isAllAsciiDigits(e) {
-    for (let n = 0; n < e.length; n++) {
-      const t = e[n];
-      if (t < 48 || t > 57) return !1;
+  isAllAsciiDigits(b) {
+    for (let i = 0; i < b.length; i++) {
+      const c = b[i];
+      if (c < 48 || c > 57) return false;
     }
-    return !0;
+    return true;
   }
   // ===== Utilities for heartbeat parity =====
   static getFormattedMacAddress() {
-    var o;
+    var _a;
     if (this.cachedMac) return this.cachedMac;
-    const e = F();
-    for (const a of Object.keys(e))
-      for (const d of e[a] || [])
-        if (!d.internal && d.mac && d.mac !== "00:00:00:00:00:00")
-          return this.cachedMac = d.mac.toUpperCase(), this.cachedMac;
-    const n = de().toUpperCase(), t = (a) => a.padEnd(12, "0").slice(0, 12), i = Buffer.from(t(n)).toString("hex").slice(0, 12).toUpperCase();
-    return this.cachedMac = ((o = i.match(/.{1,2}/g)) == null ? void 0 : o.join(":")) ?? "00:00:00:00:00:00", this.cachedMac;
+    const ifs = networkInterfaces();
+    for (const name of Object.keys(ifs)) {
+      for (const info of ifs[name] || []) {
+        if (!info.internal && info.mac && info.mac !== "00:00:00:00:00:00") {
+          this.cachedMac = info.mac.toUpperCase();
+          return this.cachedMac;
+        }
+      }
+    }
+    const h = hostname().toUpperCase();
+    const pad = (s) => s.padEnd(12, "0").slice(0, 12);
+    const hex = Buffer.from(pad(h)).toString("hex").slice(0, 12).toUpperCase();
+    this.cachedMac = ((_a = hex.match(/.{1,2}/g)) == null ? void 0 : _a.join(":")) ?? "00:00:00:00:00:00";
+    return this.cachedMac;
   }
   static getHeartbeat() {
     return {
@@ -181,135 +223,169 @@ const le = Ce(be), A = class A {
       timestamp: Date.now(),
       status: "ok",
       mac: this.getFormattedMacAddress(),
-      ip: A.getLocalIPv4(),
-      uptime: Math.floor(ue() * 1e3),
-      freeHeap: me(),
+      ip: _Helper_StreamProcessor.getLocalIPv4(),
+      uptime: Math.floor(uptime() * 1e3),
+      freeHeap: freemem(),
       // "free-ish" bytes
       firmware: process.env.npm_package_version || "0.0.0",
-      platform: ge()
+      platform: platform()
     };
   }
   static getLocalIPv4() {
-    const e = F();
-    for (const n of Object.keys(e))
-      for (const t of e[n] || [])
-        if (!t.internal && t.family === "IPv4" && t.address) return t.address;
+    const ifs = networkInterfaces();
+    for (const name of Object.keys(ifs)) {
+      for (const info of ifs[name] || []) {
+        if (!info.internal && info.family === "IPv4" && info.address) return info.address;
+      }
+    }
     return "0.0.0.0";
   }
 };
+// Debug control - set to false to reduce console spam
+__publicField(_Helper_StreamProcessor, "VERBOSE_SENSOR_LOGGING", false);
+__publicField(_Helper_StreamProcessor, "VERBOSE_CONFIG_LOGGING", true);
+__publicField(_Helper_StreamProcessor, "VERBOSE_ROUTING_LOGGING", false);
 // 8 MB
 // Cached "MAC" equivalent (closest parity to ESP32 getFormattedMacAddress)
-v(A, "cachedMac", null);
-let H = A;
-const _ = class _ {
-  constructor(e = {}) {
-    v(this, "wss", null);
-    v(this, "port");
-    v(this, "connectedClients", /* @__PURE__ */ new Map());
-    v(this, "nextClientId", 1);
-    v(this, "processor");
-    v(this, "messagesReceived", 0);
-    v(this, "messagesSent", 0);
-    v(this, "errorCount", 0);
-    this.port = e.port ?? 81, this.processor = new H({
-      onDocument: e.onDocument,
-      onProtocol: e.onProtocol,
-      onSystem: e.onSystem
+__publicField(_Helper_StreamProcessor, "cachedMac", null);
+let Helper_StreamProcessor = _Helper_StreamProcessor;
+const _Helper_WebSocket = class _Helper_WebSocket {
+  constructor(opts = {}) {
+    __publicField(this, "wss", null);
+    __publicField(this, "port");
+    __publicField(this, "connectedClients", /* @__PURE__ */ new Map());
+    __publicField(this, "nextClientId", 1);
+    __publicField(this, "processor");
+    __publicField(this, "messagesReceived", 0);
+    __publicField(this, "messagesSent", 0);
+    __publicField(this, "errorCount", 0);
+    this.port = opts.port ?? 81;
+    this.processor = new Helper_StreamProcessor({
+      onDocument: opts.onDocument,
+      onProtocol: opts.onProtocol,
+      onSystem: opts.onSystem
     });
   }
   async start() {
-    if (!this.wss)
+    if (this.wss) return;
+    try {
+      let WebSocketServer;
       try {
-        let e;
-        try {
-          e = (await import("./wrapper-B1zr3zr6.js")).WebSocketServer;
-        } catch (n) {
-          throw console.error("[Helper_WebSocket] ws module not available:", n), new Error("WebSocket module not installed. Run: npm install ws @types/ws");
-        }
-        this.wss = new e({ host: "0.0.0.0", port: this.port }), this.wss && (this.wss.on("connection", (n) => this.handleConnection(n)), this.wss.on("listening", () => {
-          console.log(`[Helper_WebSocket] ✅ WebSocket server started on ws://0.0.0.0:${this.port}/`);
-        }), this.wss.on("error", (n) => {
-          console.error("[Helper_WebSocket] Server error:", n);
-        }));
-      } catch (e) {
-        throw console.error("[Helper_WebSocket] Failed to start WebSocket server:", e), e;
+        const wsModule = await import("./wrapper-EAT-aO8Q.js");
+        WebSocketServer = wsModule.WebSocketServer;
+      } catch (wsError) {
+        console.error("[Helper_WebSocket] ws module not available:", wsError);
+        throw new Error("WebSocket module not installed. Run: npm install ws @types/ws");
       }
+      this.wss = new WebSocketServer({ host: "0.0.0.0", port: this.port });
+      if (this.wss) {
+        this.wss.on("connection", (ws) => this.handleConnection(ws));
+        this.wss.on("listening", () => {
+          console.log(`[Helper_WebSocket] ✅ WebSocket server started on ws://0.0.0.0:${this.port}/`);
+        });
+        this.wss.on("error", (err) => {
+          console.error("[Helper_WebSocket] Server error:", err);
+        });
+      }
+    } catch (error) {
+      console.error("[Helper_WebSocket] Failed to start WebSocket server:", error);
+      throw error;
+    }
   }
   stop() {
-    if (this.wss) {
-      for (const [, e] of this.connectedClients)
-        try {
-          e.close(1001, "server closing");
-        } catch {
-        }
-      this.connectedClients.clear(), this.wss.close(), this.wss = null, console.log("[Helper_WebSocket] WebSocket server stopped");
+    if (!this.wss) return;
+    for (const [, ws] of this.connectedClients) {
+      try {
+        ws.close(1001, "server closing");
+      } catch {
+      }
     }
+    this.connectedClients.clear();
+    this.wss.close();
+    this.wss = null;
+    console.log("[Helper_WebSocket] WebSocket server stopped");
   }
   isRunning() {
     return !!this.wss;
   }
-  handleConnection(e) {
-    const n = this.nextClientId++;
-    this.connectedClients.set(n, e), console.log(`[Helper_WebSocket] Client ${n} connected (total: ${this.connectedClients.size})`), this.sendDeviceInfo(e, n), e.on("message", async (t, i) => {
+  handleConnection(ws) {
+    const id = this.nextClientId++;
+    this.connectedClients.set(id, ws);
+    console.log(`[Helper_WebSocket] Client ${id} connected (total: ${this.connectedClients.size})`);
+    this.sendDeviceInfo(ws, id);
+    ws.on("message", async (data, isBinary) => {
       try {
-        if (!i && typeof t != "object") {
-          const a = t.toString();
-          if (a === "ping") {
-            e.send("pong"), this.messagesSent++;
+        if (!isBinary && typeof data !== "object") {
+          const msg = data.toString();
+          if (msg === "ping") {
+            ws.send("pong");
+            this.messagesSent++;
             return;
           }
-          if (a === "heartbeat" || a.includes("heartbeat-request")) {
-            const d = _.getHeartbeat();
-            e.send(JSON.stringify(d)), this.messagesSent++;
+          if (msg === "heartbeat" || msg.includes("heartbeat-request")) {
+            const hb = _Helper_WebSocket.getHeartbeat();
+            ws.send(JSON.stringify(hb));
+            this.messagesSent++;
             return;
           }
-          await this.processor.processData(Buffer.from(a, "utf8")), this.messagesReceived++;
+          await this.processor.processData(Buffer.from(msg, "utf8"));
+          this.messagesReceived++;
           return;
         }
-        const o = Buffer.isBuffer(t) ? t : Buffer.from(t);
-        await this.processor.processData(o), this.messagesReceived++;
-      } catch (o) {
-        console.error("[Helper_WebSocket] ERROR handling message:", o), this.errorCount++, this.sendError(e, "message_handling_error", o.message || String(o));
+        const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
+        await this.processor.processData(buf);
+        this.messagesReceived++;
+      } catch (e) {
+        console.error("[Helper_WebSocket] ERROR handling message:", e);
+        this.errorCount++;
+        this.sendError(ws, "message_handling_error", e.message || String(e));
       }
-    }), e.on("close", () => {
-      this.connectedClients.delete(n), console.log(
-        `[Helper_WebSocket] Client ${n} disconnected (total: ${this.connectedClients.size})`
+    });
+    ws.on("close", () => {
+      this.connectedClients.delete(id);
+      console.log(
+        `[Helper_WebSocket] Client ${id} disconnected (total: ${this.connectedClients.size})`
       );
-    }), e.on("error", (t) => {
-      console.error(`[Helper_WebSocket] Client ${n} error:`, t), this.errorCount++;
+    });
+    ws.on("error", (err) => {
+      console.error(`[Helper_WebSocket] Client ${id} error:`, err);
+      this.errorCount++;
     });
   }
-  sendDeviceInfo(e, n) {
-    const t = {
+  sendDeviceInfo(ws, clientId) {
+    const info = {
       type: "device-connected",
       timestamp: Date.now().toString(),
-      mac: _.getFormattedMacAddress(),
-      ip: _.getLocalIPv4(),
+      mac: _Helper_WebSocket.getFormattedMacAddress(),
+      ip: _Helper_WebSocket.getLocalIPv4(),
       port: this.port,
       protocol: "WebSocket",
-      clientId: n,
+      clientId,
       note: "Send data as text or binary - both supported"
     };
-    e.send(JSON.stringify(t)), this.messagesSent++;
+    ws.send(JSON.stringify(info));
+    this.messagesSent++;
   }
-  sendError(e, n, t = "") {
-    const i = {
+  sendError(ws, error, context = "") {
+    const msg = {
       type: "error",
-      error: n,
-      context: t,
+      error,
+      context,
       timestamp: Date.now()
     };
     try {
-      e.send(JSON.stringify(i)), this.messagesSent++;
+      ws.send(JSON.stringify(msg));
+      this.messagesSent++;
     } catch {
     }
   }
   // Optional helpers if you want parity methods for broadcast, etc.
-  broadcastJSON(e) {
+  broadcastJSON(doc) {
     if (!this.wss) return;
-    const n = JSON.stringify(e);
-    for (const [, t] of this.connectedClients)
-      t.readyState === t.OPEN && t.send(n);
+    const msg = JSON.stringify(doc);
+    for (const [, ws] of this.connectedClients) {
+      if (ws.readyState === ws.OPEN) ws.send(msg);
+    }
     this.messagesSent += this.connectedClients.size;
   }
   getStats() {
@@ -322,15 +398,22 @@ const _ = class _ {
     };
   }
   static getFormattedMacAddress() {
-    var o;
+    var _a;
     if (this.cachedMac) return this.cachedMac;
-    const e = F();
-    for (const a of Object.keys(e))
-      for (const d of e[a] || [])
-        if (!d.internal && d.mac && d.mac !== "00:00:00:00:00:00")
-          return this.cachedMac = d.mac.toUpperCase(), this.cachedMac;
-    const n = de().toUpperCase(), t = (a) => a.padEnd(12, "0").slice(0, 12), i = Buffer.from(t(n)).toString("hex").slice(0, 12).toUpperCase();
-    return this.cachedMac = ((o = i.match(/.{1,2}/g)) == null ? void 0 : o.join(":")) ?? "00:00:00:00:00:00", this.cachedMac;
+    const ifs = networkInterfaces();
+    for (const name of Object.keys(ifs)) {
+      for (const info of ifs[name] || []) {
+        if (!info.internal && info.mac && info.mac !== "00:00:00:00:00:00") {
+          this.cachedMac = info.mac.toUpperCase();
+          return this.cachedMac;
+        }
+      }
+    }
+    const h = hostname().toUpperCase();
+    const pad = (s) => s.padEnd(12, "0").slice(0, 12);
+    const hex = Buffer.from(pad(h)).toString("hex").slice(0, 12).toUpperCase();
+    this.cachedMac = ((_a = hex.match(/.{1,2}/g)) == null ? void 0 : _a.join(":")) ?? "00:00:00:00:00:00";
+    return this.cachedMac;
   }
   static getHeartbeat() {
     return {
@@ -338,175 +421,239 @@ const _ = class _ {
       timestamp: Date.now(),
       status: "ok",
       mac: this.getFormattedMacAddress(),
-      ip: _.getLocalIPv4(),
-      uptime: Math.floor(ue() * 1e3),
-      freeHeap: me(),
+      ip: _Helper_WebSocket.getLocalIPv4(),
+      uptime: Math.floor(uptime() * 1e3),
+      freeHeap: freemem(),
       // "free-ish" bytes
       firmware: process.env.npm_package_version || "0.0.0",
-      platform: ge()
+      platform: platform()
     };
   }
   static getLocalIPv4() {
-    const e = F();
-    for (const n of Object.keys(e))
-      for (const t of e[n] || [])
-        if (!t.internal && t.family === "IPv4" && t.address) return t.address;
+    const ifs = networkInterfaces();
+    for (const name of Object.keys(ifs)) {
+      for (const info of ifs[name] || []) {
+        if (!info.internal && info.family === "IPv4" && info.address) return info.address;
+      }
+    }
     return "0.0.0.0";
   }
 };
 // Cached "MAC" equivalent (closest parity to ESP32 getFormattedMacAddress)
-v(_, "cachedMac", null);
-let T = _;
-const W = f.dirname(Se(import.meta.url));
-let S = null, z = null;
-const fe = () => {
-  const s = h.getPath("userData");
-  return f.join(s, "jr-preferences.json");
-}, V = {
-  fullscreenMode: !0
-}, Pe = () => {
+__publicField(_Helper_WebSocket, "cachedMac", null);
+let Helper_WebSocket = _Helper_WebSocket;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+let jrWs = null;
+let mdnsService = null;
+const VERBOSE_SENSOR_LOGGING = false;
+const getPreferencesPath = () => {
+  const userDataPath = app.getPath("userData");
+  return path.join(userDataPath, "jr-preferences.json");
+};
+const defaultPreferences = {
+  fullscreenMode: true
+};
+const loadPreferences = () => {
   try {
-    const s = fe();
-    if (j.existsSync(s)) {
-      const e = j.readFileSync(s, "utf8"), n = JSON.parse(e);
-      return console.log("[main] ✅ Loaded preferences from disk:", n), { ...V, ...n };
-    } else
-      return console.log("[main] 📄 No preferences file found, using defaults"), V;
-  } catch (s) {
-    return console.warn("[main] ⚠️ Error loading preferences, using defaults:", s), V;
-  }
-}, $e = (s) => {
-  try {
-    const e = fe(), n = f.dirname(e);
-    return j.existsSync(n) || j.mkdirSync(n, { recursive: !0 }), j.writeFileSync(e, JSON.stringify(s, null, 2), "utf8"), console.log("[main] ✅ Saved preferences to disk:", s), !0;
-  } catch (e) {
-    return console.error("[main] ❌ Error saving preferences:", e), !1;
+    const prefsPath = getPreferencesPath();
+    if (fs.existsSync(prefsPath)) {
+      const data = fs.readFileSync(prefsPath, "utf8");
+      const parsed = JSON.parse(data);
+      console.log("[main] ✅ Loaded preferences from disk:", parsed);
+      return { ...defaultPreferences, ...parsed };
+    } else {
+      console.log("[main] 📄 No preferences file found, using defaults");
+      return defaultPreferences;
+    }
+  } catch (error) {
+    console.warn("[main] ⚠️ Error loading preferences, using defaults:", error);
+    return defaultPreferences;
   }
 };
-let U = Pe();
-function q() {
+const savePreferences = (preferences) => {
   try {
-    const s = process.env.APP_ROOT || f.join(W, ".."), e = f.join(s, "package.json"), n = JSON.parse(j.readFileSync(e, "utf8"));
-    if (n != null && n.version && typeof n.version == "string") return n.version;
-  } catch (s) {
-    console.warn("[Electron] Failed to read package.json version, falling back:", s);
-  }
-  return h.getVersion();
-}
-const ke = process.env.JR_GPU === "1";
-process.platform === "linux" && process.arch.startsWith("arm") && !ke && (h.disableHardwareAcceleration(), h.commandLine.appendSwitch("disable-gpu"), h.commandLine.appendSwitch("disable-gpu-compositing"), h.commandLine.appendSwitch("disable-gpu-rasterization"), h.commandLine.appendSwitch("disable-gpu-sandbox"), console.log("[Electron] GPU disabled (Canvas mode)"));
-process.env.JR_CLEAR_CACHE === "1" && h.whenReady().then(async () => {
-  try {
-    const s = we.defaultSession;
-    await s.clearCache(), await s.clearStorageData({
-      storages: [
-        "serviceworkers",
-        "cachestorage",
-        "localstorage",
-        "indexdb",
-        "websql",
-        "filesystem",
-        "cookies",
-        "shadercache"
-      ]
-    }), console.log("[Electron] Cache cleared on startup");
-  } catch (s) {
-    console.warn("[Electron] Cache clear failed:", s);
-  }
-});
-process.env.APP_ROOT = f.join(W, "..");
-const O = process.env.VITE_DEV_SERVER_URL, We = f.join(process.env.APP_ROOT, "dist-electron"), x = f.join(process.env.APP_ROOT, "dist");
-process.env.VITE_PUBLIC = O ? f.join(process.env.APP_ROOT, "public") : x;
-let r, l = null, g = null, D = null;
-function M(s, e, n) {
-  if (s && !s.isDestroyed())
-    try {
-      return s.webContents.send(e, n), !0;
-    } catch (t) {
-      return console.error(`[main] Error sending ${e} to window:`, t), !1;
+    const prefsPath = getPreferencesPath();
+    const userDataPath = path.dirname(prefsPath);
+    if (!fs.existsSync(userDataPath)) {
+      fs.mkdirSync(userDataPath, { recursive: true });
     }
-  return !1;
+    fs.writeFileSync(prefsPath, JSON.stringify(preferences, null, 2), "utf8");
+    console.log("[main] ✅ Saved preferences to disk:", preferences);
+    return true;
+  } catch (error) {
+    console.error("[main] ❌ Error saving preferences:", error);
+    return false;
+  }
+};
+let userPreferences = loadPreferences();
+function getAppVersion() {
+  try {
+    const appRoot = process.env.APP_ROOT || path.join(__dirname, "..");
+    const pkgPath = path.join(appRoot, "package.json");
+    const pkgJson = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+    if ((pkgJson == null ? void 0 : pkgJson.version) && typeof pkgJson.version === "string") return pkgJson.version;
+  } catch (e) {
+    console.warn("[Electron] Failed to read package.json version, falling back:", e);
+  }
+  return app.getVersion();
 }
-function pe() {
-  r = new J({
-    icon: f.join(process.env.VITE_PUBLIC, "jr_platinum.svg"),
+const wantGPU = process.env.JR_GPU === "1";
+if (process.platform === "linux" && process.arch.startsWith("arm") && !wantGPU) {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+  app.commandLine.appendSwitch("disable-gpu-rasterization");
+  app.commandLine.appendSwitch("disable-gpu-sandbox");
+  console.log("[Electron] GPU disabled (Canvas mode)");
+}
+if (process.env.JR_CLEAR_CACHE === "1") {
+  app.whenReady().then(async () => {
+    try {
+      const s = session.defaultSession;
+      await s.clearCache();
+      await s.clearStorageData({
+        storages: [
+          "serviceworkers",
+          "cachestorage",
+          "localstorage",
+          "indexdb",
+          "websql",
+          "filesystem",
+          "cookies",
+          "shadercache"
+        ]
+      });
+      console.log("[Electron] Cache cleared on startup");
+    } catch (e) {
+      console.warn("[Electron] Cache clear failed:", e);
+    }
+  });
+}
+process.env.APP_ROOT = path.join(__dirname, "..");
+const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
+const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
+const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
+process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
+let win;
+let kioskWindow = null;
+let debugWindow = null;
+let lastRiveConfig = null;
+function safelySendToWindow(window, channel, data) {
+  if (window && !window.isDestroyed()) {
+    try {
+      window.webContents.send(channel, data);
+      return true;
+    } catch (error) {
+      console.error(`[main] Error sending ${channel} to window:`, error);
+      return false;
+    }
+  }
+  return false;
+}
+function createWindow() {
+  win = new BrowserWindow({
+    icon: path.join(process.env.VITE_PUBLIC, "jr_platinum.svg"),
     webPreferences: {
-      preload: f.join(W, "preload.mjs"),
-      contextIsolation: !0,
-      nodeIntegration: !1,
-      webSecurity: !0
+      preload: path.join(__dirname, "preload.mjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true
     }
-  }), h.isPackaged ? r.loadFile(f.join(x, "index.html")) : O ? (r.webContents.openDevTools(), r.loadURL(O)) : r.loadFile(f.join(x, "index.html"));
+  });
+  if (app.isPackaged) {
+    win.loadFile(path.join(RENDERER_DIST, "index.html"));
+  } else if (VITE_DEV_SERVER_URL) {
+    win.webContents.openDevTools();
+    win.loadURL(VITE_DEV_SERVER_URL);
+  } else {
+    win.loadFile(path.join(RENDERER_DIST, "index.html"));
+  }
 }
-function Re(s) {
-  var e, n, t, i, o, a, d, m, p, $, k;
-  if (console.log("[main] Processing document type:", s.type), s.type === "rive_config") {
-    console.log("[main] 📋 Received enhanced Rive configuration for screenId:", s.screenId), D = s;
-    const c = ((n = (e = s.frameConfig) == null ? void 0 : e.frameConfig) == null ? void 0 : n.rive) || ((t = s.frameConfig) == null ? void 0 : t.rive);
-    if (c) {
-      console.log("[main] 📋 Config details:", {
-        canvasSize: (i = s.frameConfig) != null && i.canvas ? `${s.frameConfig.canvas.width}x${s.frameConfig.canvas.height}` : "unknown",
-        riveFile: c.file || "none",
-        riveFileUrl: c.fileUrl || "none",
-        riveEmbedded: c.embedded || !1,
-        elementCount: ((o = s.frameElements) == null ? void 0 : o.length) || 0,
-        hasDiscovery: !!c.discovery,
-        stateMachines: ((d = (a = c.discovery) == null ? void 0 : a.machines) == null ? void 0 : d.length) || 0,
-        totalInputs: ((p = (m = c.discovery) == null ? void 0 : m.metadata) == null ? void 0 : p.totalInputs) || 0
-      }), ($ = c.discovery) != null && $.machines && (console.log("[main] 🎮 State machine discovery:"), c.discovery.machines.forEach((u) => {
-        console.log(`[main]   🎯 ${u.name}: ${u.inputs.length} inputs`), u.inputs.forEach((w) => {
-          console.log(`[main]     📊 ${w.name} (${w.type}): ${w.currentValue}`);
+function processIncomingData(doc) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
+  if (doc.type === "rive_config") {
+    {
+      console.log("[main] 📋 Received Rive configuration for screenId:", doc.screenId);
+      const riveConfig = ((_b = (_a = doc.frameConfig) == null ? void 0 : _a.frameConfig) == null ? void 0 : _b.rive) || ((_c = doc.frameConfig) == null ? void 0 : _c.rive);
+      if (riveConfig) {
+        console.log("[main] 📋 Config details:", {
+          canvasSize: ((_d = doc.frameConfig) == null ? void 0 : _d.canvas) ? `${doc.frameConfig.canvas.width}x${doc.frameConfig.canvas.height}` : "unknown",
+          riveFile: riveConfig.file || "none",
+          riveFileUrl: riveConfig.fileUrl || "none",
+          riveEmbedded: riveConfig.embedded || false,
+          elementCount: ((_e = doc.frameElements) == null ? void 0 : _e.length) || 0,
+          hasDiscovery: !!riveConfig.discovery,
+          stateMachines: ((_g = (_f = riveConfig.discovery) == null ? void 0 : _f.machines) == null ? void 0 : _g.length) || 0,
+          totalInputs: ((_i = (_h = riveConfig.discovery) == null ? void 0 : _h.metadata) == null ? void 0 : _i.totalInputs) || 0
         });
-      }));
-      const C = ((k = s.frameConfig) == null ? void 0 : k.frameElements) || s.frameElements || [], y = C.filter((u) => {
-        var w, E;
-        return ((E = (w = u.riveConnections) == null ? void 0 : w.availableInputs) == null ? void 0 : E.length) > 0;
-      });
-      console.log(`[main] 🔍 Frame elements: ${C.length} total, ${y.length} with Rive connections`), y.forEach((u) => {
-        console.log(`[main]   🔗 ${u.properties.sensorTag || u.id}: ${u.riveConnections.availableInputs.length} Rive connections`), u.riveConnections.availableInputs.forEach((w) => {
-          console.log(`[main]     ⚡ ${w.fullKey} (${w.inputType})`);
+        if ((_j = riveConfig.discovery) == null ? void 0 : _j.machines) {
+          console.log("[main] 🎮 State machines:", riveConfig.discovery.machines.map((m) => `${m.name}(${m.inputs.length} inputs)`).join(", "));
+        }
+        const elements = ((_k = doc.frameConfig) == null ? void 0 : _k.frameElements) || doc.frameElements || [];
+        const elementsWithConnections = elements.filter((el) => {
+          var _a2, _b2;
+          return ((_b2 = (_a2 = el.riveConnections) == null ? void 0 : _a2.availableInputs) == null ? void 0 : _b2.length) > 0;
         });
-      });
-    }
-    M(l, "rive-config", s), M(g, "rive-config", s), M(r, "rive-config", s), console.log("[main] ✅ Enhanced Rive config forwarded to all windows");
-    return;
-  }
-  if (s.type === "rive_sensor") {
-    console.log("[main] 📊 Received enhanced Rive sensor data for screenId:", s.screenId);
-    const c = Object.keys(s.sensors || {}), C = c.reduce((y, u) => y + u.split(",").length, 0);
-    console.log("[main] 📊 Sensor payload analysis:"), console.log(`[main]   📦 ${c.length} sensor keys expanding to ${C} individual tags`), c.forEach((y) => {
-      const u = s.sensors[y], w = y.split(",").map((E) => E.trim());
-      w.length > 1 ? (console.log(`[main]   🔀 Multi-tag "${y}" → [${w.join(", ")}]`), console.log(`[main]     📊 Value: ${u.value} ${u.unit}`)) : console.log(`[main]   📊 ${y}: ${u.value} ${u.unit}`);
-    }), M(l, "rive-sensor-data", s), M(g, "rive-sensor-data", s), M(r, "rive-sensor-data", s), console.log("[main] ✅ Enhanced Rive sensor data forwarded to all windows");
-    return;
-  }
-  if (s.type === "sensor" && s.sensors) {
-    console.log("[main] 📄 Processing legacy sensor format");
-    try {
-      const c = Object.keys(s.sensors)[0];
-      if (c && s.sensors[c] && s.sensors[c][0]) {
-        const C = parseInt(s.sensors[c][0].Value, 10), y = s.sensors[c][0].Unit || "";
-        console.log(`[main] 📄 Legacy sensor: ${c} = ${C} ${y}`), l && !l.isDestroyed() && l.webContents.send("sensor-data", {
-          value: C,
-          unit: y,
-          sensorName: c
-        });
+        if (elementsWithConnections.length > 0) {
+          console.log(`[main] 🔗 ${elementsWithConnections.length}/${elements.length} elements have Rive connections`);
+        }
       }
-    } catch (c) {
-      console.error("[main] Error processing legacy sensor data:", c);
+    }
+    lastRiveConfig = doc;
+    safelySendToWindow(kioskWindow, "rive-config", doc);
+    safelySendToWindow(debugWindow, "rive-config", doc);
+    safelySendToWindow(win, "rive-config", doc);
+    {
+      console.log("[main] ✅ Rive config forwarded to all windows");
     }
     return;
   }
-  if (s.type === "heartbeat-response" || s.type === "device-connected") {
-    console.log(`[main] 💛 Received ${s.type}`);
+  if (doc.type === "rive_sensor") {
+    safelySendToWindow(kioskWindow, "rive-sensor-data", doc);
+    safelySendToWindow(debugWindow, "rive-sensor-data", doc);
+    safelySendToWindow(win, "rive-sensor-data", doc);
     return;
   }
-  console.log(`[main] ❓ Unknown message type: ${s.type}`), s.type && console.log(`[main] 📋 Message keys: ${Object.keys(s).join(", ")}`);
+  if (doc.type === "sensor" && doc.sensors) {
+    try {
+      const firstSensorKey = Object.keys(doc.sensors)[0];
+      if (firstSensorKey && doc.sensors[firstSensorKey] && doc.sensors[firstSensorKey][0]) {
+        const sensorValue = parseInt(doc.sensors[firstSensorKey][0].Value, 10);
+        const sensorUnit = doc.sensors[firstSensorKey][0].Unit || "";
+        if (VERBOSE_SENSOR_LOGGING) ;
+        if (kioskWindow && !kioskWindow.isDestroyed()) {
+          kioskWindow.webContents.send("sensor-data", {
+            value: sensorValue,
+            unit: sensorUnit,
+            sensorName: firstSensorKey
+          });
+        }
+      }
+    } catch (error) {
+      console.error("[main] Error processing legacy sensor data:", error);
+    }
+    return;
+  }
+  if (doc.type === "heartbeat-response" || doc.type === "device-connected") {
+    return;
+  }
+  if (doc.type && !((_l = processIncomingData.seenTypes) == null ? void 0 : _l.has(doc.type))) {
+    if (!processIncomingData.seenTypes) {
+      processIncomingData.seenTypes = /* @__PURE__ */ new Set();
+    }
+    processIncomingData.seenTypes.add(doc.type);
+    console.log(`[main] ❓ Unknown message type: ${doc.type}`);
+    console.log(`[main] 📋 Message keys: ${Object.keys(doc).join(", ")}`);
+  }
 }
-async function De() {
+async function startMDNSService() {
   try {
-    const { Bonjour: s } = await import("./index-BNgNfdXg.js").then((a) => a.i), e = new s(), n = T.getFormattedMacAddress(), t = `JunctionRelay_Virtual_${n}`, i = e.publish({
-      name: t,
+    const { Bonjour } = await import("./index-DqJd3otR.js").then((n) => n.i);
+    const instance = new Bonjour();
+    const mac = Helper_WebSocket.getFormattedMacAddress();
+    const deviceName = `JunctionRelay_Virtual_${mac}`;
+    const httpService = instance.publish({
+      name: deviceName,
       type: "junctionrelay",
       // Try without underscores first
       protocol: "tcp",
@@ -514,232 +661,341 @@ async function De() {
       port: 80,
       txt: {
         type: "virtual_device",
-        firmware: q(),
+        firmware: getAppVersion(),
         platform: "electron",
-        mac: n
+        mac
       }
-    }), o = e.publish({
-      name: `${t}_WS`,
+    });
+    const wsService = instance.publish({
+      name: `${deviceName}_WS`,
       type: "junctionrelay-ws",
       protocol: "tcp",
       port: 81,
       txt: {
         type: "virtual_device_ws",
-        firmware: q(),
+        firmware: getAppVersion(),
         platform: "electron",
-        mac: n
+        mac
       }
     });
-    z = { instance: e, httpService: i, wsService: o }, console.log(`[main] ✅ mDNS services started - device discoverable as ${t}`), console.log("[main] Advertising: junctionrelay.tcp (port 80) and junctionrelay-ws.tcp (port 81)");
-  } catch (s) {
-    console.log("[main] mDNS service failed to start:", s.message), console.log("[main] Device running without network discovery");
+    mdnsService = { instance, httpService, wsService };
+    console.log(`[main] ✅ mDNS services started - device discoverable as ${deviceName}`);
+  } catch (error) {
+    console.log("[main] mDNS service failed to start:", error.message);
+    console.log("[main] Device running without network discovery");
   }
 }
-async function Ee() {
-  if (console.log("[main] startWebSocketServer() called"), S != null && S.isRunning()) {
-    console.log("[main] Helper_WS already running on :81"), r == null || r.webContents.send("ws-status", { ok: !0, message: "WebSocket already running." });
+async function startWebSocketServer() {
+  console.log("[main] startWebSocketServer() called");
+  if (jrWs == null ? void 0 : jrWs.isRunning()) {
+    console.log("[main] Helper_WS already running on :81");
+    win == null ? void 0 : win.webContents.send("ws-status", { ok: true, message: "WebSocket already running." });
     return;
   }
   try {
-    console.log("[main] Creating Helper_WebSocket on :81"), S = new T({
+    console.log("[main] Creating Helper_WebSocket on :81");
+    jrWs = new Helper_WebSocket({
       port: 81,
-      onDocument: (s) => {
-        r == null || r.webContents.send("display:json", s), Re(s);
+      onDocument: (doc) => {
+        win == null ? void 0 : win.webContents.send("display:json", doc);
+        processIncomingData(doc);
       },
-      onProtocol: (s) => {
-        console.log("[main] 🔌 Protocol message:", s.type), r == null || r.webContents.send("display:protocol", s);
+      onProtocol: (doc) => {
+        if (VERBOSE_SENSOR_LOGGING) ;
+        win == null ? void 0 : win.webContents.send("display:protocol", doc);
       },
-      onSystem: (s) => {
-        console.log("[main] ⚙️ System message:", s.type), r == null || r.webContents.send("display:system", s);
+      onSystem: (doc) => {
+        console.log("[main] ⚙️ System message:", doc.type);
+        win == null ? void 0 : win.webContents.send("display:system", doc);
       }
-    }), await S.start(), console.log("[main] ✅ Helper_WebSocket started on :81"), await De(), r == null || r.webContents.send("ws-status", { ok: !0, message: "WebSocket server started on :81" });
-  } catch (s) {
-    console.error("[main] Helper_WebSocket failed:", s), r == null || r.webContents.send("ws-status", { ok: !1, message: `Failed to start WebSocket: ${String(s)}` });
+    });
+    await jrWs.start();
+    console.log("[main] ✅ Helper_WebSocket started on :81");
+    await startMDNSService();
+    win == null ? void 0 : win.webContents.send("ws-status", { ok: true, message: "WebSocket server started on :81" });
+  } catch (helperErr) {
+    console.error("[main] Helper_WebSocket failed:", helperErr);
+    win == null ? void 0 : win.webContents.send("ws-status", { ok: false, message: `Failed to start WebSocket: ${String(helperErr)}` });
   }
 }
-function B() {
-  if (console.log("[main] stopWebSocketServer() called"), z)
+function stopWebSocketServer() {
+  console.log("[main] stopWebSocketServer() called");
+  if (mdnsService) {
     try {
-      z.instance && z.instance.destroy(), z = null, console.log("[main] mDNS services stopped");
-    } catch (s) {
-      console.error("[main] Error stopping mDNS:", s);
+      if (mdnsService.instance) {
+        mdnsService.instance.destroy();
+      }
+      mdnsService = null;
+      console.log("[main] mDNS services stopped");
+    } catch (e) {
+      console.error("[main] Error stopping mDNS:", e);
     }
-  if (S) {
+  }
+  if (jrWs) {
     try {
-      S.stop();
-    } catch (s) {
-      console.error("[main] jrWs.stop error:", s);
+      jrWs.stop();
+    } catch (e) {
+      console.error("[main] jrWs.stop error:", e);
     }
-    S = null, console.log("[main] Helper_WS stopped"), r == null || r.webContents.send("ws-status", { ok: !0, message: "WebSocket server stopped." });
+    jrWs = null;
+    console.log("[main] Helper_WS stopped");
+    win == null ? void 0 : win.webContents.send("ws-status", { ok: true, message: "WebSocket server stopped." });
     return;
   }
-  r == null || r.webContents.send("ws-status", { ok: !0, message: "WebSocket not running." });
+  win == null ? void 0 : win.webContents.send("ws-status", { ok: true, message: "WebSocket not running." });
 }
-b.on("open-external", (s, e) => {
+ipcMain.on("open-external", (_, url) => {
   try {
-    ve.openExternal(e);
-  } catch (n) {
-    console.error("Error opening external URL:", n);
+    shell.openExternal(url);
+  } catch (error) {
+    console.error("Error opening external URL:", error);
   }
 });
-b.handle("get-app-version", () => q());
-b.handle("get-fullscreen-preference", () => (console.log(`[main] 📖 Retrieved fullscreen preference: ${U.fullscreenMode}`), U.fullscreenMode));
-b.on("save-fullscreen-preference", (s, e) => {
-  U.fullscreenMode = e;
-  const n = $e(U);
-  console.log(`[main] ${n ? "✅" : "❌"} Saved fullscreen preference: ${e}`);
+ipcMain.handle("get-app-version", () => getAppVersion());
+ipcMain.handle("get-fullscreen-preference", () => {
+  console.log(`[main] 📖 Retrieved fullscreen preference: ${userPreferences.fullscreenMode}`);
+  return userPreferences.fullscreenMode;
 });
-b.on("start-ws", () => {
-  Ee();
+ipcMain.on("save-fullscreen-preference", (_, preference) => {
+  userPreferences.fullscreenMode = preference;
+  const saved = savePreferences(userPreferences);
+  console.log(`[main] ${saved ? "✅" : "❌"} Saved fullscreen preference: ${preference}`);
 });
-b.on("stop-ws", () => {
-  B();
+ipcMain.on("start-ws", () => {
+  startWebSocketServer();
 });
-b.handle("ws-stats", () => {
-  var s;
+ipcMain.on("stop-ws", () => {
+  stopWebSocketServer();
+});
+ipcMain.handle("ws-stats", () => {
+  var _a;
   try {
-    return ((s = S == null ? void 0 : S.getStats) == null ? void 0 : s.call(S)) ?? null;
+    return ((_a = jrWs == null ? void 0 : jrWs.getStats) == null ? void 0 : _a.call(jrWs)) ?? null;
   } catch {
     return null;
   }
 });
-b.on("open-debug-window", () => {
+ipcMain.on("open-debug-window", () => {
   try {
-    if (console.log("[main] 🔍 Opening debug window"), g && !g.isDestroyed()) {
-      g.focus();
+    console.log("[main] 🔍 Opening debug window");
+    if (debugWindow && !debugWindow.isDestroyed()) {
+      debugWindow.focus();
       return;
     }
-    g = new J({
+    debugWindow = new BrowserWindow({
       width: 800,
       height: 600,
       title: "JunctionRelay Debug Panel",
       webPreferences: {
-        preload: f.join(W, "preload.mjs"),
-        contextIsolation: !0,
-        nodeIntegration: !1,
-        webSecurity: !0
+        preload: path.join(__dirname, "preload.mjs"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        webSecurity: true
       },
-      show: !1
-    }), g.on("closed", () => {
-      console.log("[main] 🔍 Debug window closed"), g = null, r && !r.isDestroyed() && r.webContents.send("debug-window-closed");
-    }), g.once("ready-to-show", () => {
-      console.log("[main] 🔍 Debug window ready, showing"), g == null || g.show(), setTimeout(() => {
-        D && g && !g.isDestroyed() && (console.log("[main] 🔍 Sending buffered config to debug window"), g.webContents.send("rive-config", D));
+      show: false
+    });
+    debugWindow.on("closed", () => {
+      console.log("[main] 🔍 Debug window closed");
+      debugWindow = null;
+      if (win && !win.isDestroyed()) win.webContents.send("debug-window-closed");
+    });
+    debugWindow.once("ready-to-show", () => {
+      console.log("[main] 🔍 Debug window ready, showing");
+      debugWindow == null ? void 0 : debugWindow.show();
+      setTimeout(() => {
+        if (lastRiveConfig && debugWindow && !debugWindow.isDestroyed()) {
+          console.log("[main] 🔍 Sending buffered config to debug window");
+          debugWindow.webContents.send("rive-config", lastRiveConfig);
+        }
       }, 500);
-    }), h.isPackaged ? g.loadFile(f.join(x, "index.html"), {
-      query: { debug: "true" }
-    }) : O ? g.loadURL(O + "?debug=true") : g.loadFile(f.join(x, "index.html"), {
-      query: { debug: "true" }
-    }), r && !r.isDestroyed() && r.webContents.send("debug-window-opened"), console.log("[main] ✅ Debug window opened");
-  } catch (s) {
-    console.error("Error opening debug window:", s);
-  }
-});
-b.on("close-debug-window", () => {
-  g && !g.isDestroyed() && (console.log("[main] 🔍 Closing debug window (IPC request)"), g.close(), g = null, r && !r.isDestroyed() && r.webContents.send("debug-window-closed"));
-});
-b.on("open-visualization", (s, e = {}) => {
-  var n, t, i;
-  try {
-    if (console.log("[main] 🎨 Opening visualization window with options:", e), l && !l.isDestroyed()) {
-      console.log("[main] 🎨 Visualization window already exists, focusing it"), l.focus(), s.sender.send("visualization-opened");
-      return;
-    }
-    let o = null, a = null;
-    if (r && !r.isDestroyed())
-      try {
-        a = r.getBounds(), o = ce.getDisplayMatching(a).bounds, console.log(`[main] 🎨 Main window display: ${o.width}x${o.height} at ${o.x},${o.y}`), console.log(`[main] 🎨 Main window bounds: ${a.width}x${a.height} at ${a.x},${a.y}`);
-      } catch (m) {
-        console.warn("[main] ⚠️ Could not get main window display, using primary:", m), o = ce.getPrimaryDisplay().bounds, console.log(`[main] 🎨 Using primary display: ${o.width}x${o.height} at ${o.x},${o.y}`);
-      }
-    const d = {
-      webPreferences: {
-        preload: f.join(W, "preload.mjs"),
-        contextIsolation: !0,
-        nodeIntegration: !1,
-        webSecurity: !0
-      },
-      show: !1
-    };
-    if (e.fullscreen !== !1)
-      Object.assign(d, {
-        fullscreen: !0,
-        frame: !1,
-        alwaysOnTop: !0,
-        skipTaskbar: !0,
-        resizable: !1
-      }), o && (Object.assign(d, {
-        x: o.x,
-        y: o.y,
-        width: o.width,
-        height: o.height
-      }), console.log(`[main] 🎨 Fullscreen on display: ${o.x},${o.y} ${o.width}x${o.height}`));
-    else {
-      let m = 1e3, p = 700;
-      if (D) {
-        const c = ((t = (n = D.frameConfig) == null ? void 0 : n.frameConfig) == null ? void 0 : t.canvas) || ((i = D.frameConfig) == null ? void 0 : i.canvas);
-        c && c.width && c.height ? (m = c.width, p = c.height, console.log(`[main] 🎨 Using canvas dimensions: ${m}x${p}`)) : console.log(`[main] 🎨 No canvas dimensions found, using default: ${m}x${p}`);
-      } else
-        console.log(`[main] 🎨 No config available, using default dimensions: ${m}x${p}`);
-      let $, k;
-      o && ($ = o.x + Math.floor((o.width - m) / 2), k = o.y + Math.floor((o.height - p) / 2), console.log(`[main] 🎨 Positioning windowed visualization at ${$},${k} on display ${o.x},${o.y}`)), Object.assign(d, {
-        width: m,
-        height: p,
-        x: $,
-        y: k,
-        frame: !0,
-        alwaysOnTop: !1,
-        skipTaskbar: !1,
-        resizable: !0,
-        title: `JunctionRelay Visualization (${m}×${p})`
+    });
+    if (app.isPackaged) {
+      debugWindow.loadFile(path.join(RENDERER_DIST, "index.html"), {
+        query: { debug: "true" }
+      });
+    } else if (VITE_DEV_SERVER_URL) {
+      debugWindow.loadURL(VITE_DEV_SERVER_URL + "?debug=true");
+    } else {
+      debugWindow.loadFile(path.join(RENDERER_DIST, "index.html"), {
+        query: { debug: "true" }
       });
     }
-    l = new J(d), e.fullscreen !== !1 && l.setAlwaysOnTop(!0, "screen-saver"), l.on("closed", () => {
-      console.log("[main] 🎨 Visualization window closed"), l = null, r && !r.isDestroyed() && r.webContents.send("visualization-closed");
-    }), l.once("ready-to-show", () => {
-      console.log("[main] 🎨 Visualization window ready, showing"), l == null || l.show(), setTimeout(() => {
-        D && l && !l.isDestroyed() && (console.log("[main] 🎨 Sending buffered config to visualization window"), l.webContents.send("rive-config", D));
-      }, 500);
-    }), l.webContents.on("before-input-event", (m, p) => {
-      p.key === "Escape" && p.type === "keyDown" && (console.log("[main] 🎨 Escape key pressed, closing visualization"), l == null || l.close());
-    }), h.isPackaged ? l.loadFile(f.join(x, "index.html"), {
-      query: { mode: "visualization" }
-    }) : O ? l.loadURL(O + "?mode=visualization") : l.loadFile(f.join(x, "index.html"), {
-      query: { mode: "visualization" }
-    }), s.sender.send("visualization-opened"), console.log("[main] ✅ Visualization window opened");
-  } catch (o) {
-    console.error("Error opening visualization kiosk:", o);
+    if (win && !win.isDestroyed()) win.webContents.send("debug-window-opened");
+    console.log("[main] ✅ Debug window opened");
+  } catch (error) {
+    console.error("Error opening debug window:", error);
   }
 });
-b.on("close-visualization", (s) => {
-  l && !l.isDestroyed() && (console.log("[main] 🎨 Closing visualization window (IPC request)"), l.close(), l = null, s.sender.send("visualization-closed"));
+ipcMain.on("close-debug-window", () => {
+  if (debugWindow && !debugWindow.isDestroyed()) {
+    console.log("[main] 🔍 Closing debug window (IPC request)");
+    debugWindow.close();
+    debugWindow = null;
+    if (win && !win.isDestroyed()) win.webContents.send("debug-window-closed");
+  }
 });
-b.on("quit-app", () => {
+ipcMain.on("open-visualization", (event, options = {}) => {
+  var _a, _b, _c;
+  try {
+    console.log("[main] 🎨 Opening visualization window with options:", options);
+    if (kioskWindow && !kioskWindow.isDestroyed()) {
+      console.log("[main] 🎨 Visualization window already exists, focusing it");
+      kioskWindow.focus();
+      event.sender.send("visualization-opened");
+      return;
+    }
+    let displayBounds = null;
+    let mainWindowBounds = null;
+    if (win && !win.isDestroyed()) {
+      try {
+        mainWindowBounds = win.getBounds();
+        const mainWindowDisplay = screen.getDisplayMatching(mainWindowBounds);
+        displayBounds = mainWindowDisplay.bounds;
+        console.log(`[main] 🎨 Using display: ${displayBounds.width}x${displayBounds.height} at ${displayBounds.x},${displayBounds.y}`);
+      } catch (error) {
+        console.warn("[main] ⚠️ Could not get main window display, using primary:", error);
+        const primaryDisplay = screen.getPrimaryDisplay();
+        displayBounds = primaryDisplay.bounds;
+        console.log(`[main] 🎨 Using primary display: ${displayBounds.width}x${displayBounds.height} at ${displayBounds.x},${displayBounds.y}`);
+      }
+    }
+    const windowOptions = {
+      webPreferences: {
+        preload: path.join(__dirname, "preload.mjs"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        webSecurity: true
+      },
+      show: false
+    };
+    if (options.fullscreen !== false) {
+      Object.assign(windowOptions, {
+        fullscreen: true,
+        frame: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        resizable: false
+      });
+      if (displayBounds) {
+        Object.assign(windowOptions, {
+          x: displayBounds.x,
+          y: displayBounds.y,
+          width: displayBounds.width,
+          height: displayBounds.height
+        });
+        console.log(`[main] 🎨 Fullscreen mode: ${displayBounds.width}x${displayBounds.height}`);
+      }
+    } else {
+      let windowWidth = 1e3;
+      let windowHeight = 700;
+      if (lastRiveConfig) {
+        const canvas = ((_b = (_a = lastRiveConfig.frameConfig) == null ? void 0 : _a.frameConfig) == null ? void 0 : _b.canvas) || ((_c = lastRiveConfig.frameConfig) == null ? void 0 : _c.canvas);
+        if (canvas && canvas.width && canvas.height) {
+          windowWidth = canvas.width;
+          windowHeight = canvas.height;
+          console.log(`[main] 🎨 Using canvas dimensions: ${windowWidth}x${windowHeight}`);
+        }
+      }
+      let windowX = void 0;
+      let windowY = void 0;
+      if (displayBounds) {
+        windowX = displayBounds.x + Math.floor((displayBounds.width - windowWidth) / 2);
+        windowY = displayBounds.y + Math.floor((displayBounds.height - windowHeight) / 2);
+        console.log(`[main] 🎨 Windowed mode: ${windowWidth}x${windowHeight} at ${windowX},${windowY}`);
+      }
+      Object.assign(windowOptions, {
+        width: windowWidth,
+        height: windowHeight,
+        x: windowX,
+        y: windowY,
+        frame: true,
+        alwaysOnTop: false,
+        skipTaskbar: false,
+        resizable: true,
+        title: `JunctionRelay Visualization (${windowWidth}×${windowHeight})`
+      });
+    }
+    kioskWindow = new BrowserWindow(windowOptions);
+    if (options.fullscreen !== false) {
+      kioskWindow.setAlwaysOnTop(true, "screen-saver");
+    }
+    kioskWindow.on("closed", () => {
+      console.log("[main] 🎨 Visualization window closed");
+      kioskWindow = null;
+      if (win && !win.isDestroyed()) win.webContents.send("visualization-closed");
+    });
+    kioskWindow.once("ready-to-show", () => {
+      console.log("[main] 🎨 Visualization window ready, showing");
+      kioskWindow == null ? void 0 : kioskWindow.show();
+      setTimeout(() => {
+        if (lastRiveConfig && kioskWindow && !kioskWindow.isDestroyed()) {
+          console.log("[main] 🎨 Sending buffered config to visualization window");
+          kioskWindow.webContents.send("rive-config", lastRiveConfig);
+        }
+      }, 500);
+    });
+    kioskWindow.webContents.on("before-input-event", (_, input) => {
+      if (input.key === "Escape" && input.type === "keyDown") {
+        console.log("[main] 🎨 Escape key pressed, closing visualization");
+        kioskWindow == null ? void 0 : kioskWindow.close();
+      }
+    });
+    if (app.isPackaged) {
+      kioskWindow.loadFile(path.join(RENDERER_DIST, "index.html"), {
+        query: { mode: "visualization" }
+      });
+    } else if (VITE_DEV_SERVER_URL) {
+      kioskWindow.loadURL(VITE_DEV_SERVER_URL + "?mode=visualization");
+    } else {
+      kioskWindow.loadFile(path.join(RENDERER_DIST, "index.html"), {
+        query: { mode: "visualization" }
+      });
+    }
+    event.sender.send("visualization-opened");
+    console.log("[main] ✅ Visualization window opened");
+  } catch (error) {
+    console.error("Error opening visualization kiosk:", error);
+  }
+});
+ipcMain.on("close-visualization", (event) => {
+  if (kioskWindow && !kioskWindow.isDestroyed()) {
+    console.log("[main] 🎨 Closing visualization window (IPC request)");
+    kioskWindow.close();
+    kioskWindow = null;
+    event.sender.send("visualization-closed");
+  }
+});
+ipcMain.on("quit-app", () => {
   console.log("[main] 🚪 Quit app requested");
   try {
-    B();
+    stopWebSocketServer();
   } catch {
   }
-  h.quit();
+  app.quit();
 });
-h.on("window-all-closed", () => {
+app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     console.log("[main] 🚪 All windows closed, quitting app");
     try {
-      B();
+      stopWebSocketServer();
     } catch {
     }
-    h.quit(), r = null;
+    app.quit();
+    win = null;
   }
 });
-h.on("activate", () => {
-  J.getAllWindows().length === 0 && (console.log("[main] 📱 App activated, creating window"), pe());
+app.on("activate", () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    console.log("[main] 📱 App activated, creating window");
+    createWindow();
+  }
 });
-h.whenReady().then(() => {
-  console.log("[main] 🚀 App ready, creating main window"), pe();
+app.whenReady().then(() => {
+  console.log("[main] 🚀 App ready, creating main window");
+  createWindow();
 });
 export {
-  We as MAIN_DIST,
-  x as RENDERER_DIST,
-  O as VITE_DEV_SERVER_URL
+  MAIN_DIST,
+  RENDERER_DIST,
+  VITE_DEV_SERVER_URL
 };

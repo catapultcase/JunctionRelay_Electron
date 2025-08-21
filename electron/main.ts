@@ -10,6 +10,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 let jrWs: Helper_WebSocket | null = null;
 let mdnsService: any = null;
 
+// Debug control - set to false to reduce console spam
+const VERBOSE_SENSOR_LOGGING = false;
+const VERBOSE_CONFIG_LOGGING = true;
+
 // Preferences file path
 const getPreferencesPath = () => {
   const userDataPath = app.getPath('userData');
@@ -165,102 +169,99 @@ function createWindow() {
   }
 }
 
-// Enhanced sensor and config data processing with better Rive support
+// Enhanced sensor and config data processing with reduced logging
 function processIncomingData(doc: Record<string, any>) {
-  console.log("[main] Processing document type:", doc.type);
-
   // Handle enhanced Rive configuration payloads
   if (doc.type === "rive_config") {
-    console.log("[main] 📋 Received enhanced Rive configuration for screenId:", doc.screenId);
+    if (VERBOSE_CONFIG_LOGGING) {
+      console.log("[main] 📋 Received Rive configuration for screenId:", doc.screenId);
+      
+      // Log enhanced config details
+      const riveConfig = doc.frameConfig?.frameConfig?.rive || doc.frameConfig?.rive;
+      if (riveConfig) {
+        console.log("[main] 📋 Config details:", {
+          canvasSize: doc.frameConfig?.canvas ? `${doc.frameConfig.canvas.width}x${doc.frameConfig.canvas.height}` : 'unknown',
+          riveFile: riveConfig.file || 'none',
+          riveFileUrl: riveConfig.fileUrl || 'none',
+          riveEmbedded: riveConfig.embedded || false,
+          elementCount: doc.frameElements?.length || 0,
+          hasDiscovery: !!riveConfig.discovery,
+          stateMachines: riveConfig.discovery?.machines?.length || 0,
+          totalInputs: riveConfig.discovery?.metadata?.totalInputs || 0
+        });
+        
+        // Log state machine discovery details
+        if (riveConfig.discovery?.machines) {
+          console.log("[main] 🎮 State machines:", riveConfig.discovery.machines.map((m: any) => 
+            `${m.name}(${m.inputs.length} inputs)`).join(', '));
+        }
+        
+        // Log frame elements with Rive connections
+        const elements = doc.frameConfig?.frameElements || doc.frameElements || [];
+        const elementsWithConnections = elements.filter((el: any) => el.riveConnections?.availableInputs?.length > 0);
+        if (elementsWithConnections.length > 0) {
+          console.log(`[main] 🔗 ${elementsWithConnections.length}/${elements.length} elements have Rive connections`);
+        }
+      }
+    }
     
     // Store the latest config for new windows
     lastRiveConfig = doc;
-    
-    // Log enhanced config details
-    const riveConfig = doc.frameConfig?.frameConfig?.rive || doc.frameConfig?.rive;
-    if (riveConfig) {
-      console.log("[main] 📋 Config details:", {
-        canvasSize: doc.frameConfig?.canvas ? `${doc.frameConfig.canvas.width}x${doc.frameConfig.canvas.height}` : 'unknown',
-        riveFile: riveConfig.file || 'none',
-        riveFileUrl: riveConfig.fileUrl || 'none',
-        riveEmbedded: riveConfig.embedded || false,
-        elementCount: doc.frameElements?.length || 0,
-        hasDiscovery: !!riveConfig.discovery,
-        stateMachines: riveConfig.discovery?.machines?.length || 0,
-        totalInputs: riveConfig.discovery?.metadata?.totalInputs || 0
-      });
-      
-      // Log state machine discovery details
-      if (riveConfig.discovery?.machines) {
-        console.log("[main] 🎮 State machine discovery:");
-        riveConfig.discovery.machines.forEach((machine: any) => {
-          console.log(`[main]   🎯 ${machine.name}: ${machine.inputs.length} inputs`);
-          machine.inputs.forEach((input: any) => {
-            console.log(`[main]     📊 ${input.name} (${input.type}): ${input.currentValue}`);
-          });
-        });
-      }
-      
-      // Log frame elements with Rive connections
-      const elements = doc.frameConfig?.frameElements || doc.frameElements || [];
-      const elementsWithConnections = elements.filter((el: any) => el.riveConnections?.availableInputs?.length > 0);
-      console.log(`[main] 🔍 Frame elements: ${elements.length} total, ${elementsWithConnections.length} with Rive connections`);
-      
-      elementsWithConnections.forEach((element: any) => {
-        console.log(`[main]   🔗 ${element.properties.sensorTag || element.id}: ${element.riveConnections.availableInputs.length} Rive connections`);
-        element.riveConnections.availableInputs.forEach((conn: any) => {
-          console.log(`[main]     ⚡ ${conn.fullKey} (${conn.inputType})`);
-        });
-      });
-    }
     
     // Forward config to all windows
     safelySendToWindow(kioskWindow, "rive-config", doc);
     safelySendToWindow(debugWindow, "rive-config", doc);
     safelySendToWindow(win, "rive-config", doc);
     
-    console.log("[main] ✅ Enhanced Rive config forwarded to all windows");
+    if (VERBOSE_CONFIG_LOGGING) {
+      console.log("[main] ✅ Rive config forwarded to all windows");
+    }
     return;
   }
 
-  // Handle enhanced Rive sensor data payloads with comma-separated tags
+  // Handle enhanced Rive sensor data payloads with reduced logging
   if (doc.type === "rive_sensor") {
-    console.log("[main] 📊 Received enhanced Rive sensor data for screenId:", doc.screenId);
-    
-    // Process comma-separated sensor tags
-    const sensorKeys = Object.keys(doc.sensors || {});
-    const expandedSensorCount = sensorKeys.reduce((count, key) => {
-      return count + key.split(',').length;
-    }, 0);
-    
-    console.log("[main] 📊 Sensor payload analysis:");
-    console.log(`[main]   📦 ${sensorKeys.length} sensor keys expanding to ${expandedSensorCount} individual tags`);
-    
-    // Log each sensor key and its expansion
-    sensorKeys.forEach(sensorKey => {
-      const sensorData = doc.sensors[sensorKey];
-      const tags = sensorKey.split(',').map((tag: string) => tag.trim());
+    if (VERBOSE_SENSOR_LOGGING) {
+      console.log("[main] 📊 Sensor data for screenId:", doc.screenId);
       
-      if (tags.length > 1) {
-        console.log(`[main]   🔀 Multi-tag "${sensorKey}" → [${tags.join(', ')}]`);
-        console.log(`[main]     📊 Value: ${sensorData.value} ${sensorData.unit}`);
-      } else {
-        console.log(`[main]   📊 ${sensorKey}: ${sensorData.value} ${sensorData.unit}`);
+      // Process comma-separated sensor tags
+      const sensorKeys = Object.keys(doc.sensors || {});
+      const expandedSensorCount = sensorKeys.reduce((count, key) => {
+        return count + key.split(',').length;
+      }, 0);
+      
+      console.log(`[main] 📊 ${sensorKeys.length} sensor keys → ${expandedSensorCount} individual tags`);
+      
+      // Log only first few sensor keys to avoid spam
+      sensorKeys.slice(0, 3).forEach(sensorKey => {
+        const sensorData = doc.sensors[sensorKey];
+        const tags = sensorKey.split(',').map((tag: string) => tag.trim());
+        
+        if (tags.length > 1) {
+          console.log(`[main]   🔀 "${sensorKey}" → [${tags.join(', ')}] = ${sensorData.value} ${sensorData.unit}`);
+        } else {
+          console.log(`[main]   📊 ${sensorKey}: ${sensorData.value} ${sensorData.unit}`);
+        }
+      });
+      
+      if (sensorKeys.length > 3) {
+        console.log(`[main]   ... and ${sensorKeys.length - 3} more sensors`);
       }
-    });
+    }
     
     // Forward sensor data to all windows
     safelySendToWindow(kioskWindow, "rive-sensor-data", doc);
     safelySendToWindow(debugWindow, "rive-sensor-data", doc);
     safelySendToWindow(win, "rive-sensor-data", doc);
     
-    console.log("[main] ✅ Enhanced Rive sensor data forwarded to all windows");
     return;
   }
 
   // Legacy sensor processing for backward compatibility
   if (doc.type === "sensor" && doc.sensors) {
-    console.log("[main] 📄 Processing legacy sensor format");
+    if (VERBOSE_SENSOR_LOGGING) {
+      console.log("[main] 📄 Processing legacy sensor format");
+    }
     try {
       // Get the first sensor in the payload
       const firstSensorKey = Object.keys(doc.sensors)[0];
@@ -268,7 +269,9 @@ function processIncomingData(doc: Record<string, any>) {
         const sensorValue = parseInt(doc.sensors[firstSensorKey][0].Value, 10);
         const sensorUnit = doc.sensors[firstSensorKey][0].Unit || "";
         
-        console.log(`[main] 📄 Legacy sensor: ${firstSensorKey} = ${sensorValue} ${sensorUnit}`);
+        if (VERBOSE_SENSOR_LOGGING) {
+          console.log(`[main] 📄 Legacy sensor: ${firstSensorKey} = ${sensorValue} ${sensorUnit}`);
+        }
         
         // Forward to visualization window (legacy format)
         if (kioskWindow && !kioskWindow.isDestroyed()) {
@@ -285,15 +288,19 @@ function processIncomingData(doc: Record<string, any>) {
     return;
   }
 
-  // Handle other message types
+  // Handle other message types quietly
   if (doc.type === "heartbeat-response" || doc.type === "device-connected") {
-    console.log(`[main] 💛 Received ${doc.type}`);
+    // Silent handling for frequent messages
     return;
   }
 
-  // Log unknown message types for debugging
-  console.log(`[main] ❓ Unknown message type: ${doc.type}`);
-  if (doc.type) {
+  // Log unknown message types for debugging (but only once per type)
+  if (doc.type && !processIncomingData.seenTypes?.has(doc.type)) {
+    if (!processIncomingData.seenTypes) {
+      processIncomingData.seenTypes = new Set();
+    }
+    processIncomingData.seenTypes.add(doc.type);
+    console.log(`[main] ❓ Unknown message type: ${doc.type}`);
     console.log(`[main] 📋 Message keys: ${Object.keys(doc).join(', ')}`);
   }
 }
@@ -337,7 +344,6 @@ async function startMDNSService() {
     
     mdnsService = { instance, httpService, wsService };
     console.log(`[main] ✅ mDNS services started - device discoverable as ${deviceName}`);
-    console.log(`[main] Advertising: junctionrelay.tcp (port 80) and junctionrelay-ws.tcp (port 81)`);
     
   } catch (error) {
     console.log("[main] mDNS service failed to start:", (error as Error).message);
@@ -366,7 +372,9 @@ async function startWebSocketServer() {
         processIncomingData(doc);
       },
       onProtocol: (doc: Record<string, any>) => {
-        console.log("[main] 🔌 Protocol message:", doc.type);
+        if (VERBOSE_SENSOR_LOGGING) {
+          console.log("[main] 🔌 Protocol message:", doc.type);
+        }
         win?.webContents.send("display:protocol", doc);
       },
       onSystem: (doc: Record<string, any>) => {
@@ -545,8 +553,7 @@ ipcMain.on('open-visualization', (event, options = {}) => {
         mainWindowBounds = win.getBounds();
         const mainWindowDisplay = screen.getDisplayMatching(mainWindowBounds);
         displayBounds = mainWindowDisplay.bounds;
-        console.log(`[main] 🎨 Main window display: ${displayBounds.width}x${displayBounds.height} at ${displayBounds.x},${displayBounds.y}`);
-        console.log(`[main] 🎨 Main window bounds: ${mainWindowBounds.width}x${mainWindowBounds.height} at ${mainWindowBounds.x},${mainWindowBounds.y}`);
+        console.log(`[main] 🎨 Using display: ${displayBounds.width}x${displayBounds.height} at ${displayBounds.x},${displayBounds.y}`);
       } catch (error) {
         console.warn("[main] ⚠️ Could not get main window display, using primary:", error);
         // Fallback to primary display
@@ -585,7 +592,7 @@ ipcMain.on('open-visualization', (event, options = {}) => {
           width: displayBounds.width,
           height: displayBounds.height,
         });
-        console.log(`[main] 🎨 Fullscreen on display: ${displayBounds.x},${displayBounds.y} ${displayBounds.width}x${displayBounds.height}`);
+        console.log(`[main] 🎨 Fullscreen mode: ${displayBounds.width}x${displayBounds.height}`);
       }
     } else {
       // Windowed mode - use canvas dimensions if available
@@ -598,11 +605,7 @@ ipcMain.on('open-visualization', (event, options = {}) => {
           windowWidth = canvas.width;
           windowHeight = canvas.height;
           console.log(`[main] 🎨 Using canvas dimensions: ${windowWidth}x${windowHeight}`);
-        } else {
-          console.log(`[main] 🎨 No canvas dimensions found, using default: ${windowWidth}x${windowHeight}`);
         }
-      } else {
-        console.log(`[main] 🎨 No config available, using default dimensions: ${windowWidth}x${windowHeight}`);
       }
       
       // Position windowed mode on the same display, centered
@@ -612,7 +615,7 @@ ipcMain.on('open-visualization', (event, options = {}) => {
       if (displayBounds) {
         windowX = displayBounds.x + Math.floor((displayBounds.width - windowWidth) / 2);
         windowY = displayBounds.y + Math.floor((displayBounds.height - windowHeight) / 2);
-        console.log(`[main] 🎨 Positioning windowed visualization at ${windowX},${windowY} on display ${displayBounds.x},${displayBounds.y}`);
+        console.log(`[main] 🎨 Windowed mode: ${windowWidth}x${windowHeight} at ${windowX},${windowY}`);
       }
       
       Object.assign(windowOptions, {
