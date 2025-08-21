@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
-import SensorTest from "./SensorTest";
+import { useState, useEffect, useMemo, useRef } from "react";
+import ViewPort from "./ViewPort";
+import Debug from "./Debug";
 
 // Simple inline toast (non-blocking)
 function Toast({ message, type }: { message: string; type: "info" | "error" }) {
@@ -30,10 +31,30 @@ export default function App() {
   const [showUrlDialog, setShowUrlDialog] = useState(false);
   const [urlInput, setUrlInput] = useState("http://10.168.1.90:7180/");
   const [visualizationOpen, setVisualizationOpen] = useState(false);
+  const [debugWindowOpen, setDebugWindowOpen] = useState(false);
+  const [fullscreenMode, setFullscreenMode] = useState(true);
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "info" | "error" } | null>(null);
   const [appVersion, setAppVersion] = useState<string>("");
   const [wsRunning, setWsRunning] = useState(false);
-  // Removed unused wsStats state variable
+
+  // Use a ref to always get the current fullscreen mode value
+  const fullscreenModeRef = useRef(fullscreenMode);
+  const preferencesLoadedRef = useRef(preferencesLoaded);
+  const visualizationOpenRef = useRef(visualizationOpen);
+
+  // Update refs whenever state changes
+  useEffect(() => {
+    fullscreenModeRef.current = fullscreenMode;
+  }, [fullscreenMode]);
+
+  useEffect(() => {
+    preferencesLoadedRef.current = preferencesLoaded;
+  }, [preferencesLoaded]);
+
+  useEffect(() => {
+    visualizationOpenRef.current = visualizationOpen;
+  }, [visualizationOpen]);
 
   // Auto-hide toast
   useEffect(() => {
@@ -42,13 +63,44 @@ export default function App() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Visualization mode
+  // Load saved fullscreen preference on startup
+  useEffect(() => {
+    if (window.ipcRenderer) {
+      window.ipcRenderer.invoke('get-fullscreen-preference').then((saved: boolean | null) => {
+        if (saved !== null) {
+          console.log("[App] Loaded saved fullscreen preference:", saved);
+          setFullscreenMode(saved);
+        }
+        setPreferencesLoaded(true);
+        console.log("[App] Preferences loading complete");
+      }).catch(() => {
+        console.log("[App] No saved preference found, using default");
+        setPreferencesLoaded(true);
+      });
+    } else {
+      setPreferencesLoaded(true);
+    }
+  }, []);
+
+  // Check for different modes
   const isVisualizationMode = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("mode") === "visualization";
   }, []);
 
-  if (isVisualizationMode) return <SensorTest />;
+  const isDebugMode = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("debug") === "true";
+  }, []);
+
+  // Route to appropriate component based on URL params
+  if (isVisualizationMode) {
+    return <ViewPort />;
+  }
+
+  if (isDebugMode) {
+    return <Debug />;
+  }
 
   // IPC listeners + fetch version
   useEffect(() => {
@@ -56,9 +108,10 @@ export default function App() {
 
     const handleVisualizationOpened = () => setVisualizationOpen(true);
     const handleVisualizationClosed = () => setVisualizationOpen(false);
+    const handleDebugWindowOpened = () => setDebugWindowOpen(true);
+    const handleDebugWindowClosed = () => setDebugWindowOpen(false);
     const handleWsStatus = (_e: any, msg: { ok: boolean; message: string }) => {
       setToast({ msg: msg.message, type: msg.ok ? "info" : "error" });
-      // Determine if WebSocket is running based on message
       if (msg.message.includes("started") || msg.message.includes("already running")) {
         setWsRunning(true);
       } else if (msg.message.includes("stopped") || msg.message.includes("not running")) {
@@ -66,18 +119,50 @@ export default function App() {
       }
     };
 
+    // Handle auto-opening viewport when config arrives - using refs to get current values
+    const handleRiveConfig = (_e: any, data: any) => {
+      if (data.type === 'rive_config') {
+        const currentFullscreenMode = fullscreenModeRef.current;
+        const currentPreferencesLoaded = preferencesLoadedRef.current;
+        const currentVisualizationOpen = visualizationOpenRef.current;
+        
+        console.log("[App] Received rive-config, visualizationOpen:", currentVisualizationOpen);
+        console.log("[App] Current fullscreen mode:", currentFullscreenMode, "Preferences loaded:", currentPreferencesLoaded);
+        
+        if (!currentVisualizationOpen && currentPreferencesLoaded) {
+          console.log("[App] Auto-opening ViewPort with fullscreen mode:", currentFullscreenMode);
+          setToast({ msg: `Configuration received, opening ViewPort in ${currentFullscreenMode ? 'Fullscreen' : 'Windowed'} mode...`, type: "info" });
+          
+          // Set state immediately to prevent duplicate opens
+          setVisualizationOpen(true);
+          
+          window.ipcRenderer?.send("open-visualization", { fullscreen: currentFullscreenMode });
+        } else if (!currentPreferencesLoaded) {
+          console.log("[App] Config received but preferences not loaded yet, skipping auto-open");
+        } else {
+          console.log("[App] ViewPort already open, skipping auto-open");
+        }
+      }
+    };
+
     window.ipcRenderer.on("visualization-opened", handleVisualizationOpened);
     window.ipcRenderer.on("visualization-closed", handleVisualizationClosed);
+    window.ipcRenderer.on("debug-window-opened", handleDebugWindowOpened);
+    window.ipcRenderer.on("debug-window-closed", handleDebugWindowClosed);
     window.ipcRenderer.on("ws-status", handleWsStatus);
+    window.ipcRenderer.on("rive-config", handleRiveConfig);
 
     window.ipcRenderer.invoke("get-app-version").then((v) => v && setAppVersion(v));
 
     return () => {
       window.ipcRenderer?.off("visualization-opened", handleVisualizationOpened);
       window.ipcRenderer?.off("visualization-closed", handleVisualizationClosed);
+      window.ipcRenderer?.off("debug-window-opened", handleDebugWindowOpened);
+      window.ipcRenderer?.off("debug-window-closed", handleDebugWindowClosed);
       window.ipcRenderer?.off("ws-status", handleWsStatus);
+      window.ipcRenderer?.off("rive-config", handleRiveConfig);
     };
-  }, []);
+  }, []); // Remove dependencies to avoid recreating the event handler
 
   const openJunctionRelay = () => setShowUrlDialog(true);
   const openJunctionRelayCloud = () => {
@@ -106,8 +191,23 @@ export default function App() {
     }
   };
 
-  // Removed unused launchVisualization function
-  // Removed unused openVirtualDeviceSettings function
+  const openDebugWindow = () => {
+    if (!window.ipcRenderer) return setToast({ msg: "ipcRenderer unavailable.", type: "error" });
+    try {
+      window.ipcRenderer.send("open-debug-window");
+    } catch {
+      setToast({ msg: "Failed to open debug window.", type: "error" });
+    }
+  };
+
+  const closeDebugWindow = () => {
+    if (!window.ipcRenderer) return setToast({ msg: "ipcRenderer unavailable.", type: "error" });
+    try {
+      window.ipcRenderer.send("close-debug-window");
+    } catch {
+      setToast({ msg: "Failed to close debug window.", type: "error" });
+    }
+  };
 
   const handleOpenUrl = () => {
     if (!window.ipcRenderer) return setToast({ msg: "ipcRenderer unavailable.", type: "error" });
@@ -136,7 +236,6 @@ export default function App() {
   return (
     <div
       style={{
-        // 🔒 Lock the app to the viewport with no overflow
         height: "100vh",
         width: "100vw",
         overflow: "hidden",
@@ -178,42 +277,88 @@ export default function App() {
           </div>
         </section>
 
-        {/* Divider (tight margins to avoid vertical expansion) */}
         <hr style={{ margin: "12px 0", border: "none", borderTop: "1px solid #333" }} />
 
         {/* Virtual Device Section */}
-<section>
-  <h3 style={{ margin: "0 0 12px" }}>JunctionRelay Virtual Device</h3>
-  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-    <div style={{ display: "flex", gap: 12 }}>
-      <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={startWebSocketServer}>
-        {wsRunning ? "⏹️ Stop WebSocket Server" : "▶️ Start WebSocket Server"}
-      </button>
-      <button 
-        style={{ padding: "10px 14px", cursor: "pointer" }} 
-        onClick={() => {
-          if (visualizationOpen) {
-            window.ipcRenderer?.send("close-visualization");
-          } else {
-            window.ipcRenderer?.send("open-visualization", { fullscreen: true });
-          }
-        }}
-      >
-        {visualizationOpen ? "⏰ Close Fullscreen" : "🎨 Launch Fullscreen"}
-      </button>
-      <button 
-        style={{ padding: "10px 14px", cursor: "pointer" }} 
-        onClick={() => {
-          if (visualizationOpen) {
-            window.ipcRenderer?.send("close-visualization");
-          } else {
-            window.ipcRenderer?.send("open-visualization", { fullscreen: false });
-          }
-        }}
-      >
-        {visualizationOpen ? "⏰ Close Debug" : "🛠 Launch Debug"}
-      </button>
-    </div>
+        <section>
+          <h3 style={{ margin: "0 0 12px" }}>JunctionRelay Virtual Device</h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <button style={{ padding: "10px 14px", cursor: "pointer" }} onClick={startWebSocketServer}>
+                {wsRunning ? "⏹️ Stop WebSocket Server" : "▶️ Start WebSocket Server"}
+              </button>
+              
+              <button 
+                style={{ 
+                  padding: "10px 14px", 
+                  cursor: "pointer",
+                  backgroundColor: fullscreenMode ? "#007acc" : "#6c757d",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "4px"
+                }} 
+                onClick={() => {
+                  const newMode = !fullscreenMode;
+                  setFullscreenMode(newMode);
+                  // Save preference via IPC
+                  if (window.ipcRenderer) {
+                    console.log("[App] Saving fullscreen preference:", newMode);
+                    window.ipcRenderer.send('save-fullscreen-preference', newMode);
+                  }
+                  setToast({ 
+                    msg: `Mode switched to ${newMode ? 'Fullscreen' : 'Windowed'}`, 
+                    type: "info" 
+                  });
+                }}
+              >
+                {fullscreenMode ? "🖥️ Fullscreen" : "🪟 Windowed"}
+              </button>
+
+              <button 
+                style={{ 
+                  padding: "10px 14px", 
+                  cursor: "pointer",
+                  backgroundColor: visualizationOpen ? "#dc3545" : "#007acc",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "4px"
+                }} 
+                onClick={() => {
+                  console.log("[App] Manual ViewPort button clicked, current mode:", fullscreenMode);
+                  if (visualizationOpen) {
+                    window.ipcRenderer?.send("close-visualization");
+                  } else {
+                    window.ipcRenderer?.send("open-visualization", { fullscreen: fullscreenMode });
+                  }
+                }}
+              >
+                {visualizationOpen ? "⏰ Close ViewPort" : "🎨 Open ViewPort"}
+              </button>
+            </div>
+            
+            {/* Debug Controls Row */}
+            <div style={{ display: "flex", gap: 12 }}>
+              <button 
+                style={{ 
+                  padding: "10px 14px", 
+                  cursor: "pointer",
+                  backgroundColor: debugWindowOpen ? "#dc3545" : "#6c757d",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "4px"
+                }} 
+                onClick={() => {
+                  console.log("[App] Debug button clicked, debugWindowOpen:", debugWindowOpen);
+                  if (debugWindowOpen) {
+                    closeDebugWindow();
+                  } else {
+                    openDebugWindow();
+                  }
+                }}
+              >
+                {debugWindowOpen ? "❌ Close Debug" : "🛠 Launch Debug"}
+              </button>
+            </div>
           </div>
         </section>
       </main>

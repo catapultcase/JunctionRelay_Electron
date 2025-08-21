@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, session } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, session, screen } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -9,6 +9,59 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // WebSocket server instance
 let jrWs: Helper_WebSocket | null = null;
 let mdnsService: any = null;
+
+// Preferences file path
+const getPreferencesPath = () => {
+  const userDataPath = app.getPath('userData');
+  return path.join(userDataPath, 'jr-preferences.json');
+};
+
+// Default preferences
+const defaultPreferences = {
+  fullscreenMode: true
+};
+
+// Load preferences from file
+const loadPreferences = () => {
+  try {
+    const prefsPath = getPreferencesPath();
+    if (fs.existsSync(prefsPath)) {
+      const data = fs.readFileSync(prefsPath, 'utf8');
+      const parsed = JSON.parse(data);
+      console.log('[main] ✅ Loaded preferences from disk:', parsed);
+      return { ...defaultPreferences, ...parsed };
+    } else {
+      console.log('[main] 📄 No preferences file found, using defaults');
+      return defaultPreferences;
+    }
+  } catch (error) {
+    console.warn('[main] ⚠️ Error loading preferences, using defaults:', error);
+    return defaultPreferences;
+  }
+};
+
+// Save preferences to file
+const savePreferences = (preferences: any) => {
+  try {
+    const prefsPath = getPreferencesPath();
+    const userDataPath = path.dirname(prefsPath);
+    
+    // Ensure user data directory exists
+    if (!fs.existsSync(userDataPath)) {
+      fs.mkdirSync(userDataPath, { recursive: true });
+    }
+    
+    fs.writeFileSync(prefsPath, JSON.stringify(preferences, null, 2), 'utf8');
+    console.log('[main] ✅ Saved preferences to disk:', preferences);
+    return true;
+  } catch (error) {
+    console.error('[main] ❌ Error saving preferences:', error);
+    return false;
+  }
+};
+
+// Load preferences on startup
+let userPreferences = loadPreferences();
 
 // ---------- Version helper: read from package.json (fallback to app.getVersion) ----------
 function getAppVersion(): string {
@@ -72,10 +125,28 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 
 let win: BrowserWindow | null
 let kioskWindow: BrowserWindow | null = null
+let debugWindow: BrowserWindow | null = null
+
+// Buffer for the last config to send to new windows
+let lastRiveConfig: any = null
+
+// Helper to safely send to window when ready
+function safelySendToWindow(window: BrowserWindow | null, channel: string, data: any) {
+  if (window && !window.isDestroyed()) {
+    try {
+      window.webContents.send(channel, data);
+      return true;
+    } catch (error) {
+      console.error(`[main] Error sending ${channel} to window:`, error);
+      return false;
+    }
+  }
+  return false;
+}
 
 function createWindow() {
   win = new BrowserWindow({
-    icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
+    icon: path.join(process.env.VITE_PUBLIC, 'jr_platinum.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
@@ -101,6 +172,9 @@ function processIncomingData(doc: Record<string, any>) {
   // Handle enhanced Rive configuration payloads
   if (doc.type === "rive_config") {
     console.log("[main] 📋 Received enhanced Rive configuration for screenId:", doc.screenId);
+    
+    // Store the latest config for new windows
+    lastRiveConfig = doc;
     
     // Log enhanced config details
     const riveConfig = doc.frameConfig?.frameConfig?.rive || doc.frameConfig?.rive;
@@ -130,7 +204,7 @@ function processIncomingData(doc: Record<string, any>) {
       // Log frame elements with Rive connections
       const elements = doc.frameConfig?.frameElements || doc.frameElements || [];
       const elementsWithConnections = elements.filter((el: any) => el.riveConnections?.availableInputs?.length > 0);
-      console.log(`[main] 📐 Frame elements: ${elements.length} total, ${elementsWithConnections.length} with Rive connections`);
+      console.log(`[main] 🔍 Frame elements: ${elements.length} total, ${elementsWithConnections.length} with Rive connections`);
       
       elementsWithConnections.forEach((element: any) => {
         console.log(`[main]   🔗 ${element.properties.sensorTag || element.id}: ${element.riveConnections.availableInputs.length} Rive connections`);
@@ -140,17 +214,12 @@ function processIncomingData(doc: Record<string, any>) {
       });
     }
     
-    // Forward config to visualization window
-    if (kioskWindow && !kioskWindow.isDestroyed()) {
-      kioskWindow.webContents.send("rive-config", doc);
-      console.log("[main] ✅ Enhanced Rive config forwarded to visualization window");
-    }
+    // Forward config to all windows
+    safelySendToWindow(kioskWindow, "rive-config", doc);
+    safelySendToWindow(debugWindow, "rive-config", doc);
+    safelySendToWindow(win, "rive-config", doc);
     
-    // Also forward to main window for debugging
-    if (win && !win.isDestroyed()) {
-      win.webContents.send("rive-config", doc);
-    }
-    
+    console.log("[main] ✅ Enhanced Rive config forwarded to all windows");
     return;
   }
 
@@ -180,23 +249,18 @@ function processIncomingData(doc: Record<string, any>) {
       }
     });
     
-    // Forward sensor data to visualization window
-    if (kioskWindow && !kioskWindow.isDestroyed()) {
-      kioskWindow.webContents.send("rive-sensor-data", doc);
-      console.log("[main] ✅ Enhanced Rive sensor data forwarded to visualization window");
-    }
+    // Forward sensor data to all windows
+    safelySendToWindow(kioskWindow, "rive-sensor-data", doc);
+    safelySendToWindow(debugWindow, "rive-sensor-data", doc);
+    safelySendToWindow(win, "rive-sensor-data", doc);
     
-    // Also forward to main window for debugging
-    if (win && !win.isDestroyed()) {
-      win.webContents.send("rive-sensor-data", doc);
-    }
-    
+    console.log("[main] ✅ Enhanced Rive sensor data forwarded to all windows");
     return;
   }
 
   // Legacy sensor processing for backward compatibility
   if (doc.type === "sensor" && doc.sensors) {
-    console.log("[main] 🔄 Processing legacy sensor format");
+    console.log("[main] 📄 Processing legacy sensor format");
     try {
       // Get the first sensor in the payload
       const firstSensorKey = Object.keys(doc.sensors)[0];
@@ -204,7 +268,7 @@ function processIncomingData(doc: Record<string, any>) {
         const sensorValue = parseInt(doc.sensors[firstSensorKey][0].Value, 10);
         const sensorUnit = doc.sensors[firstSensorKey][0].Unit || "";
         
-        console.log(`[main] 🔄 Legacy sensor: ${firstSensorKey} = ${sensorValue} ${sensorUnit}`);
+        console.log(`[main] 📄 Legacy sensor: ${firstSensorKey} = ${sensorValue} ${sensorUnit}`);
         
         // Forward to visualization window (legacy format)
         if (kioskWindow && !kioskWindow.isDestroyed()) {
@@ -223,7 +287,7 @@ function processIncomingData(doc: Record<string, any>) {
 
   // Handle other message types
   if (doc.type === "heartbeat-response" || doc.type === "device-connected") {
-    console.log(`[main] 💓 Received ${doc.type}`);
+    console.log(`[main] 💛 Received ${doc.type}`);
     return;
   }
 
@@ -362,6 +426,18 @@ ipcMain.on('open-external', (_, url) => {
 // IPC: app version for renderer, read from package.json
 ipcMain.handle('get-app-version', () => getAppVersion())
 
+// IPC: fullscreen preference storage (now with file persistence)
+ipcMain.handle('get-fullscreen-preference', () => {
+  console.log(`[main] 📖 Retrieved fullscreen preference: ${userPreferences.fullscreenMode}`);
+  return userPreferences.fullscreenMode;
+});
+
+ipcMain.on('save-fullscreen-preference', (_, preference: boolean) => {
+  userPreferences.fullscreenMode = preference;
+  const saved = savePreferences(userPreferences);
+  console.log(`[main] ${saved ? '✅' : '❌'} Saved fullscreen preference: ${preference}`);
+});
+
 // WebSocket IPC handlers
 ipcMain.on("start-ws", () => {
   startWebSocketServer();
@@ -375,12 +451,112 @@ ipcMain.handle("ws-stats", () => {
   try { return jrWs?.getStats?.() ?? null; } catch { return null; }
 });
 
+// Debug Window IPC handlers
+ipcMain.on("open-debug-window", () => {
+  try {
+    console.log("[main] 🔍 Opening debug window");
+    
+    // If debug window already exists, focus it
+    if (debugWindow && !debugWindow.isDestroyed()) {
+      debugWindow.focus();
+      return;
+    }
+
+    debugWindow = new BrowserWindow({
+      width: 800,
+      height: 600,
+      title: "JunctionRelay Debug Panel",
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.mjs'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        webSecurity: true
+      },
+      show: false
+    });
+
+    debugWindow.on("closed", () => {
+      console.log("[main] 🔍 Debug window closed");
+      debugWindow = null;
+      if (win && !win.isDestroyed()) win.webContents.send("debug-window-closed");
+    });
+
+    debugWindow.once("ready-to-show", () => {
+      console.log("[main] 🔍 Debug window ready, showing");
+      debugWindow?.show();
+      
+      // Send any existing config data to the new debug window
+      setTimeout(() => {
+        if (lastRiveConfig && debugWindow && !debugWindow.isDestroyed()) {
+          console.log("[main] 🔍 Sending buffered config to debug window");
+          debugWindow.webContents.send("rive-config", lastRiveConfig);
+        }
+      }, 500); // Give window time to fully load
+    });
+
+    // Load with debug=true parameter
+    if (app.isPackaged) {
+      debugWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), {
+        query: { debug: "true" }
+      });
+    } else if (VITE_DEV_SERVER_URL) {
+      debugWindow.loadURL(VITE_DEV_SERVER_URL + "?debug=true");
+    } else {
+      debugWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), {
+        query: { debug: "true" }
+      });
+    }
+
+    if (win && !win.isDestroyed()) win.webContents.send("debug-window-opened");
+    console.log("[main] ✅ Debug window opened");
+  } catch (error) {
+    console.error("Error opening debug window:", error);
+  }
+});
+
+ipcMain.on("close-debug-window", () => {
+  if (debugWindow && !debugWindow.isDestroyed()) {
+    console.log("[main] 🔍 Closing debug window (IPC request)");
+    debugWindow.close();
+    debugWindow = null;
+    if (win && !win.isDestroyed()) win.webContents.send("debug-window-closed");
+  }
+});
+
 // IPC: open kiosk visualization
 ipcMain.on('open-visualization', (event, options = {}) => {
   try {
     console.log("[main] 🎨 Opening visualization window with options:", options);
     
-    const windowOptions = {
+    // If visualization window already exists, focus it instead of creating new one
+    if (kioskWindow && !kioskWindow.isDestroyed()) {
+      console.log("[main] 🎨 Visualization window already exists, focusing it");
+      kioskWindow.focus();
+      event.sender.send('visualization-opened');
+      return;
+    }
+    
+    // Get the main window's display to ensure ViewPort opens on the same screen
+    let displayBounds = null;
+    let mainWindowBounds = null;
+    
+    if (win && !win.isDestroyed()) {
+      try {
+        mainWindowBounds = win.getBounds();
+        const mainWindowDisplay = screen.getDisplayMatching(mainWindowBounds);
+        displayBounds = mainWindowDisplay.bounds;
+        console.log(`[main] 🎨 Main window display: ${displayBounds.width}x${displayBounds.height} at ${displayBounds.x},${displayBounds.y}`);
+        console.log(`[main] 🎨 Main window bounds: ${mainWindowBounds.width}x${mainWindowBounds.height} at ${mainWindowBounds.x},${mainWindowBounds.y}`);
+      } catch (error) {
+        console.warn("[main] ⚠️ Could not get main window display, using primary:", error);
+        // Fallback to primary display
+        const primaryDisplay = screen.getPrimaryDisplay();
+        displayBounds = primaryDisplay.bounds;
+        console.log(`[main] 🎨 Using primary display: ${displayBounds.width}x${displayBounds.height} at ${displayBounds.x},${displayBounds.y}`);
+      }
+    }
+    
+    const windowOptions: any = {
       webPreferences: {
         preload: path.join(__dirname, 'preload.mjs'),
         contextIsolation: true,
@@ -392,7 +568,7 @@ ipcMain.on('open-visualization', (event, options = {}) => {
 
     // Apply fullscreen or windowed mode based on options
     if (options.fullscreen !== false) {
-      // Default: fullscreen kiosk mode
+      // Fullscreen kiosk mode
       Object.assign(windowOptions, {
         fullscreen: true,
         frame: false,
@@ -400,16 +576,55 @@ ipcMain.on('open-visualization', (event, options = {}) => {
         skipTaskbar: true,
         resizable: false,
       });
+      
+      // Position on the same display as main window
+      if (displayBounds) {
+        Object.assign(windowOptions, {
+          x: displayBounds.x,
+          y: displayBounds.y,
+          width: displayBounds.width,
+          height: displayBounds.height,
+        });
+        console.log(`[main] 🎨 Fullscreen on display: ${displayBounds.x},${displayBounds.y} ${displayBounds.width}x${displayBounds.height}`);
+      }
     } else {
-      // Windowed mode for debugging
+      // Windowed mode - use canvas dimensions if available
+      let windowWidth = 1000;
+      let windowHeight = 700;
+      
+      if (lastRiveConfig) {
+        const canvas = lastRiveConfig.frameConfig?.frameConfig?.canvas || lastRiveConfig.frameConfig?.canvas;
+        if (canvas && canvas.width && canvas.height) {
+          windowWidth = canvas.width;
+          windowHeight = canvas.height;
+          console.log(`[main] 🎨 Using canvas dimensions: ${windowWidth}x${windowHeight}`);
+        } else {
+          console.log(`[main] 🎨 No canvas dimensions found, using default: ${windowWidth}x${windowHeight}`);
+        }
+      } else {
+        console.log(`[main] 🎨 No config available, using default dimensions: ${windowWidth}x${windowHeight}`);
+      }
+      
+      // Position windowed mode on the same display, centered
+      let windowX = undefined;
+      let windowY = undefined;
+      
+      if (displayBounds) {
+        windowX = displayBounds.x + Math.floor((displayBounds.width - windowWidth) / 2);
+        windowY = displayBounds.y + Math.floor((displayBounds.height - windowHeight) / 2);
+        console.log(`[main] 🎨 Positioning windowed visualization at ${windowX},${windowY} on display ${displayBounds.x},${displayBounds.y}`);
+      }
+      
       Object.assign(windowOptions, {
-        width: 1000,
-        height: 700,
+        width: windowWidth,
+        height: windowHeight,
+        x: windowX,
+        y: windowY,
         frame: true,
         alwaysOnTop: false,
         skipTaskbar: false,
         resizable: true,
-        title: 'JunctionRelay Visualization (Debug Mode)',
+        title: `JunctionRelay Visualization (${windowWidth}×${windowHeight})`,
       });
     }
 
@@ -428,6 +643,14 @@ ipcMain.on('open-visualization', (event, options = {}) => {
     kioskWindow.once('ready-to-show', () => {
       console.log("[main] 🎨 Visualization window ready, showing");
       kioskWindow?.show()
+      
+      // Send any existing config data to the new visualization window
+      setTimeout(() => {
+        if (lastRiveConfig && kioskWindow && !kioskWindow.isDestroyed()) {
+          console.log("[main] 🎨 Sending buffered config to visualization window");
+          kioskWindow.webContents.send("rive-config", lastRiveConfig);
+        }
+      }, 500); // Give window time to fully load
     })
 
     kioskWindow.webContents.on('before-input-event', (_, input) => {

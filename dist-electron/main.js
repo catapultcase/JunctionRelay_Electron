@@ -1,20 +1,20 @@
-var ce = Object.defineProperty;
-var le = (s, e, t) => e in s ? ce(s, e, { enumerable: !0, configurable: !0, writable: !0, value: t }) : s[e] = t;
-var h = (s, e, t) => le(s, typeof e != "symbol" ? e + "" : e, t);
-import { app as f, session as me, ipcMain as C, shell as pe, BrowserWindow as T } from "electron";
-import { fileURLToPath as de } from "node:url";
-import u from "node:path";
-import ge from "node:fs";
-import { gunzip as he } from "zlib";
-import { networkInterfaces as A, hostname as oe, platform as ne, freemem as re, uptime as ie } from "os";
-import { promisify as fe } from "util";
-const te = fe(he), I = class I {
+var he = Object.defineProperty;
+var ye = (s, e, n) => e in s ? he(s, e, { enumerable: !0, configurable: !0, writable: !0, value: n }) : s[e] = n;
+var v = (s, e, n) => ye(s, typeof e != "symbol" ? e + "" : e, n);
+import { app as h, session as we, ipcMain as b, shell as ve, BrowserWindow as J, screen as ce } from "electron";
+import { fileURLToPath as Se } from "node:url";
+import f from "node:path";
+import j from "node:fs";
+import { gunzip as be } from "zlib";
+import { networkInterfaces as F, hostname as de, platform as ge, freemem as me, uptime as ue } from "os";
+import { promisify as Ce } from "util";
+const le = Ce(be), A = class A {
   constructor(e) {
-    h(this, "callbacks");
-    h(this, "messagesProcessed", 0);
-    h(this, "errorCount", 0);
+    v(this, "callbacks");
+    v(this, "messagesProcessed", 0);
+    v(this, "errorCount", 0);
     // Limits (raise if you push big frames)
-    h(this, "MAX_PAYLOAD_SIZE", 8 * 1024 * 1024);
+    v(this, "MAX_PAYLOAD_SIZE", 8 * 1024 * 1024);
     this.callbacks = e;
   }
   // Public stats (optional)
@@ -35,8 +35,8 @@ const te = fe(he), I = class I {
       if (e.length >= 8 && this.isAllAsciiDigits(e.slice(0, 8))) {
         try {
           await this.handlePrefixed(e);
-        } catch (t) {
-          console.error("[StreamProcessor] ERROR handling prefixed payload:", t), this.errorCount++;
+        } catch (n) {
+          console.error("[StreamProcessor] ERROR handling prefixed payload:", n), this.errorCount++;
         }
         return;
       }
@@ -44,136 +44,136 @@ const te = fe(he), I = class I {
   }
   // ---------- Private ----------
   handleRawJSON(e) {
-    const t = this.tryParseJSON(e);
-    t && (this.forward(t), this.messagesProcessed++);
+    const n = this.tryParseJSON(e);
+    n && (this.forward(n), this.messagesProcessed++);
   }
   async handleRawGzip(e) {
     try {
-      const t = await te(e), o = this.tryParseJSON(t);
-      if (!o) return;
+      const n = await le(e), t = this.tryParseJSON(n);
+      if (!t) return;
       this.forward(
-        o,
+        t,
         /*srcType*/
         3
       ), this.messagesProcessed++;
-    } catch (t) {
-      console.error("[StreamProcessor] ERROR: Failed to gunzip raw gzip:", t.message), this.errorCount++;
+    } catch (n) {
+      console.error("[StreamProcessor] ERROR: Failed to gunzip raw gzip:", n.message), this.errorCount++;
     }
   }
   async handlePrefixed(e) {
-    const t = parseInt(e.toString("ascii", 0, 4), 10), o = parseInt(e.toString("ascii", 4, 6), 10), n = parseInt(e.toString("ascii", 6, 8), 10);
-    if (!(o === 0 || o === 1)) {
-      console.error("[StreamProcessor] ERROR: Invalid type field:", o), this.errorCount++;
+    const n = parseInt(e.toString("ascii", 0, 4), 10), t = parseInt(e.toString("ascii", 4, 6), 10), i = parseInt(e.toString("ascii", 6, 8), 10);
+    if (!(t === 0 || t === 1)) {
+      console.error("[StreamProcessor] ERROR: Invalid type field:", t), this.errorCount++;
       return;
     }
-    const i = t > 0 ? t : Math.max(0, e.length - 8);
-    if (i <= 0 || i > this.MAX_PAYLOAD_SIZE) {
-      console.error("[StreamProcessor] ERROR: Invalid/oversize payload length:", i), this.errorCount++;
+    const o = n > 0 ? n : Math.max(0, e.length - 8);
+    if (o <= 0 || o > this.MAX_PAYLOAD_SIZE) {
+      console.error("[StreamProcessor] ERROR: Invalid/oversize payload length:", o), this.errorCount++;
       return;
     }
-    if (8 + i > e.length) {
-      console.error("[StreamProcessor] ERROR: Incomplete payload:", i, "available:", e.length - 8), this.errorCount++;
+    if (8 + o > e.length) {
+      console.error("[StreamProcessor] ERROR: Incomplete payload:", o, "available:", e.length - 8), this.errorCount++;
       return;
     }
-    const l = e.slice(8, 8 + i);
-    if (o === 0) {
-      const m = this.tryParseJSON(l);
-      if (!m) return;
+    const a = e.slice(8, 8 + o);
+    if (t === 0) {
+      const d = this.tryParseJSON(a);
+      if (!d) return;
       this.forward(
-        m,
+        d,
         /*srcType*/
         2,
-        n
+        i
       ), this.messagesProcessed++;
     } else
       try {
-        const m = await te(l), b = this.tryParseJSON(m);
-        if (!b) return;
+        const d = await le(a), m = this.tryParseJSON(d);
+        if (!m) return;
         this.forward(
-          b,
+          m,
           /*srcType*/
           4,
-          n
+          i
         ), this.messagesProcessed++;
-      } catch (m) {
-        console.error("[StreamProcessor] ERROR: Failed to gunzip prefixed gzip:", m.message), this.errorCount++;
+      } catch (d) {
+        console.error("[StreamProcessor] ERROR: Failed to gunzip prefixed gzip:", d.message), this.errorCount++;
       }
   }
-  forward(e, t, o) {
-    var m, b, E, _, $, c, v, d, p, g, k, F, V, H, J, q, B, G, Q, X, Y, Z, K, ee;
-    const n = e == null ? void 0 : e.type;
-    if (n === "rive_config" || n === "rive_sensor") {
-      if (console.log(`[StreamProcessor] Processing ${n} for screenId: ${e.screenId}`), n === "rive_config") {
-        const w = ((b = (m = e.frameConfig) == null ? void 0 : m.frameConfig) == null ? void 0 : b.rive) || ((E = e.frameConfig) == null ? void 0 : E.rive);
-        w != null && w.discovery && (console.log(`[StreamProcessor] Rive discovery: ${w.discovery.machines.length} machines, ${w.discovery.metadata.totalInputs} inputs`), w.discovery.machines.forEach((S) => {
-          console.log(`[StreamProcessor]   Machine "${S.name}": ${S.inputs.length} inputs`);
+  forward(e, n, t) {
+    var d, m, p, $, k, c, C, y, u, w, E, G, X, Y, Q, Z, K, ee, se, ne, oe, te, re, ie;
+    const i = e == null ? void 0 : e.type;
+    if (i === "rive_config" || i === "rive_sensor") {
+      if (console.log(`[StreamProcessor] Processing ${i} for screenId: ${e.screenId}`), i === "rive_config") {
+        const P = ((m = (d = e.frameConfig) == null ? void 0 : d.frameConfig) == null ? void 0 : m.rive) || ((p = e.frameConfig) == null ? void 0 : p.rive);
+        P != null && P.discovery && (console.log(`[StreamProcessor] Rive discovery: ${P.discovery.machines.length} machines, ${P.discovery.metadata.totalInputs} inputs`), P.discovery.machines.forEach((R) => {
+          console.log(`[StreamProcessor]   Machine "${R.name}": ${R.inputs.length} inputs`);
         }));
-        const j = ((_ = e.frameConfig) == null ? void 0 : _.frameElements) || e.frameElements || [], P = j.filter((S) => {
-          var z, se;
-          return ((se = (z = S.riveConnections) == null ? void 0 : z.availableInputs) == null ? void 0 : se.length) > 0;
+        const N = (($ = e.frameConfig) == null ? void 0 : $.frameElements) || e.frameElements || [], I = N.filter((R) => {
+          var L, ae;
+          return ((ae = (L = R.riveConnections) == null ? void 0 : L.availableInputs) == null ? void 0 : ae.length) > 0;
         });
-        console.log(`[StreamProcessor] ${j.length} frame elements, ${P.length} with Rive connections`);
+        console.log(`[StreamProcessor] ${N.length} frame elements, ${I.length} with Rive connections`);
       }
-      if (n === "rive_sensor") {
-        const w = Object.keys(e.sensors || {}), j = w.reduce((P, S) => P + S.split(",").length, 0);
-        console.log(`[StreamProcessor] Sensor data: ${w.length} sensor keys expanding to ${j} individual tags`), w.forEach((P) => {
-          const S = P.split(",").map((z) => z.trim());
-          S.length > 1 && console.log(`[StreamProcessor]   Multi-tag: "${P}" → [${S.join(", ")}]`);
+      if (i === "rive_sensor") {
+        const P = Object.keys(e.sensors || {}), N = P.reduce((I, R) => I + R.split(",").length, 0);
+        console.log(`[StreamProcessor] Sensor data: ${P.length} sensor keys expanding to ${N} individual tags`), P.forEach((I) => {
+          const R = I.split(",").map((L) => L.trim());
+          R.length > 1 && console.log(`[StreamProcessor]   Multi-tag: "${I}" → [${R.join(", ")}]`);
         });
       }
     }
-    const i = e == null ? void 0 : e.destination, l = I.getFormattedMacAddress();
-    if (i && l && i.toLowerCase() !== l.toLowerCase()) {
-      (c = ($ = this.callbacks).onProtocol) == null || c.call($, e);
+    const o = e == null ? void 0 : e.destination, a = A.getFormattedMacAddress();
+    if (o && a && o.toLowerCase() !== a.toLowerCase()) {
+      (c = (k = this.callbacks).onProtocol) == null || c.call(k, e);
       return;
     }
-    if (i && l && i.toLowerCase() === l.toLowerCase() && delete e.destination, !n) {
-      (d = (v = this.callbacks).onSystem) == null || d.call(v, e), (g = (p = this.callbacks).onDocument) == null || g.call(p, e);
+    if (o && a && o.toLowerCase() === a.toLowerCase() && delete e.destination, !i) {
+      (y = (C = this.callbacks).onSystem) == null || y.call(C, e), (w = (u = this.callbacks).onDocument) == null || w.call(u, e);
       return;
     }
-    if (n === "rive_config" || n === "rive_sensor") {
-      console.log(`[StreamProcessor] Routing ${n} to Document callback for renderer processing`), (F = (k = this.callbacks).onDocument) == null || F.call(k, e);
+    if (i === "rive_config" || i === "rive_sensor") {
+      console.log(`[StreamProcessor] Routing ${i} to Document callback for renderer processing`), (G = (E = this.callbacks).onDocument) == null || G.call(E, e);
       return;
     }
-    if (n === "sensor" || n === "config") {
-      (H = (V = this.callbacks).onDocument) == null || H.call(V, e);
+    if (i === "sensor" || i === "config") {
+      (Y = (X = this.callbacks).onDocument) == null || Y.call(X, e);
       return;
     }
-    if (n === "MQTT_Subscription_Request" || n === "websocket_ping" || n === "http_request" || n === "espnow_message" || n === "peer_management") {
-      (q = (J = this.callbacks).onProtocol) == null || q.call(J, e);
+    if (i === "MQTT_Subscription_Request" || i === "websocket_ping" || i === "http_request" || i === "espnow_message" || i === "peer_management") {
+      (Z = (Q = this.callbacks).onProtocol) == null || Z.call(Q, e);
       return;
     }
-    if (n === "preferences" || n === "stats" || n === "device_info" || n === "device_capabilities" || n === "system_command") {
-      (G = (B = this.callbacks).onSystem) == null || G.call(B, e), (X = (Q = this.callbacks).onDocument) == null || X.call(Q, e);
+    if (i === "preferences" || i === "stats" || i === "device_info" || i === "device_capabilities" || i === "system_command") {
+      (ee = (K = this.callbacks).onSystem) == null || ee.call(K, e), (ne = (se = this.callbacks).onDocument) == null || ne.call(se, e);
       return;
     }
-    console.log(`[StreamProcessor] Unknown message type '${n}', routing to System callback`), (Z = (Y = this.callbacks).onSystem) == null || Z.call(Y, e), (ee = (K = this.callbacks).onDocument) == null || ee.call(K, e);
+    console.log(`[StreamProcessor] Unknown message type '${i}', routing to System callback`), (te = (oe = this.callbacks).onSystem) == null || te.call(oe, e), (ie = (re = this.callbacks).onDocument) == null || ie.call(re, e);
   }
   tryParseJSON(e) {
     try {
       return JSON.parse(e.toString("utf8"));
-    } catch (t) {
-      return console.error("[StreamProcessor] ERROR: JSON parse failed:", t.message), this.errorCount++, null;
+    } catch (n) {
+      return console.error("[StreamProcessor] ERROR: JSON parse failed:", n.message), this.errorCount++, null;
     }
   }
   isAllAsciiDigits(e) {
-    for (let t = 0; t < e.length; t++) {
-      const o = e[t];
-      if (o < 48 || o > 57) return !1;
+    for (let n = 0; n < e.length; n++) {
+      const t = e[n];
+      if (t < 48 || t > 57) return !1;
     }
     return !0;
   }
   // ===== Utilities for heartbeat parity =====
   static getFormattedMacAddress() {
-    var i;
+    var o;
     if (this.cachedMac) return this.cachedMac;
-    const e = A();
-    for (const l of Object.keys(e))
-      for (const m of e[l] || [])
-        if (!m.internal && m.mac && m.mac !== "00:00:00:00:00:00")
-          return this.cachedMac = m.mac.toUpperCase(), this.cachedMac;
-    const t = oe().toUpperCase(), o = (l) => l.padEnd(12, "0").slice(0, 12), n = Buffer.from(o(t)).toString("hex").slice(0, 12).toUpperCase();
-    return this.cachedMac = ((i = n.match(/.{1,2}/g)) == null ? void 0 : i.join(":")) ?? "00:00:00:00:00:00", this.cachedMac;
+    const e = F();
+    for (const a of Object.keys(e))
+      for (const d of e[a] || [])
+        if (!d.internal && d.mac && d.mac !== "00:00:00:00:00:00")
+          return this.cachedMac = d.mac.toUpperCase(), this.cachedMac;
+    const n = de().toUpperCase(), t = (a) => a.padEnd(12, "0").slice(0, 12), i = Buffer.from(t(n)).toString("hex").slice(0, 12).toUpperCase();
+    return this.cachedMac = ((o = i.match(/.{1,2}/g)) == null ? void 0 : o.join(":")) ?? "00:00:00:00:00:00", this.cachedMac;
   }
   static getHeartbeat() {
     return {
@@ -181,37 +181,37 @@ const te = fe(he), I = class I {
       timestamp: Date.now(),
       status: "ok",
       mac: this.getFormattedMacAddress(),
-      ip: I.getLocalIPv4(),
-      uptime: Math.floor(ie() * 1e3),
-      freeHeap: re(),
+      ip: A.getLocalIPv4(),
+      uptime: Math.floor(ue() * 1e3),
+      freeHeap: me(),
       // "free-ish" bytes
       firmware: process.env.npm_package_version || "0.0.0",
-      platform: ne()
+      platform: ge()
     };
   }
   static getLocalIPv4() {
-    const e = A();
-    for (const t of Object.keys(e))
-      for (const o of e[t] || [])
-        if (!o.internal && o.family === "IPv4" && o.address) return o.address;
+    const e = F();
+    for (const n of Object.keys(e))
+      for (const t of e[n] || [])
+        if (!t.internal && t.family === "IPv4" && t.address) return t.address;
     return "0.0.0.0";
   }
 };
 // 8 MB
 // Cached "MAC" equivalent (closest parity to ESP32 getFormattedMacAddress)
-h(I, "cachedMac", null);
-let L = I;
-const R = class R {
+v(A, "cachedMac", null);
+let H = A;
+const _ = class _ {
   constructor(e = {}) {
-    h(this, "wss", null);
-    h(this, "port");
-    h(this, "connectedClients", /* @__PURE__ */ new Map());
-    h(this, "nextClientId", 1);
-    h(this, "processor");
-    h(this, "messagesReceived", 0);
-    h(this, "messagesSent", 0);
-    h(this, "errorCount", 0);
-    this.port = e.port ?? 81, this.processor = new L({
+    v(this, "wss", null);
+    v(this, "port");
+    v(this, "connectedClients", /* @__PURE__ */ new Map());
+    v(this, "nextClientId", 1);
+    v(this, "processor");
+    v(this, "messagesReceived", 0);
+    v(this, "messagesSent", 0);
+    v(this, "errorCount", 0);
+    this.port = e.port ?? 81, this.processor = new H({
       onDocument: e.onDocument,
       onProtocol: e.onProtocol,
       onSystem: e.onSystem
@@ -223,13 +223,13 @@ const R = class R {
         let e;
         try {
           e = (await import("./wrapper-B1zr3zr6.js")).WebSocketServer;
-        } catch (t) {
-          throw console.error("[Helper_WebSocket] ws module not available:", t), new Error("WebSocket module not installed. Run: npm install ws @types/ws");
+        } catch (n) {
+          throw console.error("[Helper_WebSocket] ws module not available:", n), new Error("WebSocket module not installed. Run: npm install ws @types/ws");
         }
-        this.wss = new e({ host: "0.0.0.0", port: this.port }), this.wss && (this.wss.on("connection", (t) => this.handleConnection(t)), this.wss.on("listening", () => {
+        this.wss = new e({ host: "0.0.0.0", port: this.port }), this.wss && (this.wss.on("connection", (n) => this.handleConnection(n)), this.wss.on("listening", () => {
           console.log(`[Helper_WebSocket] ✅ WebSocket server started on ws://0.0.0.0:${this.port}/`);
-        }), this.wss.on("error", (t) => {
-          console.error("[Helper_WebSocket] Server error:", t);
+        }), this.wss.on("error", (n) => {
+          console.error("[Helper_WebSocket] Server error:", n);
         }));
       } catch (e) {
         throw console.error("[Helper_WebSocket] Failed to start WebSocket server:", e), e;
@@ -249,67 +249,67 @@ const R = class R {
     return !!this.wss;
   }
   handleConnection(e) {
-    const t = this.nextClientId++;
-    this.connectedClients.set(t, e), console.log(`[Helper_WebSocket] Client ${t} connected (total: ${this.connectedClients.size})`), this.sendDeviceInfo(e, t), e.on("message", async (o, n) => {
+    const n = this.nextClientId++;
+    this.connectedClients.set(n, e), console.log(`[Helper_WebSocket] Client ${n} connected (total: ${this.connectedClients.size})`), this.sendDeviceInfo(e, n), e.on("message", async (t, i) => {
       try {
-        if (!n && typeof o != "object") {
-          const l = o.toString();
-          if (l === "ping") {
+        if (!i && typeof t != "object") {
+          const a = t.toString();
+          if (a === "ping") {
             e.send("pong"), this.messagesSent++;
             return;
           }
-          if (l === "heartbeat" || l.includes("heartbeat-request")) {
-            const m = R.getHeartbeat();
-            e.send(JSON.stringify(m)), this.messagesSent++;
+          if (a === "heartbeat" || a.includes("heartbeat-request")) {
+            const d = _.getHeartbeat();
+            e.send(JSON.stringify(d)), this.messagesSent++;
             return;
           }
-          await this.processor.processData(Buffer.from(l, "utf8")), this.messagesReceived++;
+          await this.processor.processData(Buffer.from(a, "utf8")), this.messagesReceived++;
           return;
         }
-        const i = Buffer.isBuffer(o) ? o : Buffer.from(o);
-        await this.processor.processData(i), this.messagesReceived++;
-      } catch (i) {
-        console.error("[Helper_WebSocket] ERROR handling message:", i), this.errorCount++, this.sendError(e, "message_handling_error", i.message || String(i));
+        const o = Buffer.isBuffer(t) ? t : Buffer.from(t);
+        await this.processor.processData(o), this.messagesReceived++;
+      } catch (o) {
+        console.error("[Helper_WebSocket] ERROR handling message:", o), this.errorCount++, this.sendError(e, "message_handling_error", o.message || String(o));
       }
     }), e.on("close", () => {
-      this.connectedClients.delete(t), console.log(
-        `[Helper_WebSocket] Client ${t} disconnected (total: ${this.connectedClients.size})`
+      this.connectedClients.delete(n), console.log(
+        `[Helper_WebSocket] Client ${n} disconnected (total: ${this.connectedClients.size})`
       );
-    }), e.on("error", (o) => {
-      console.error(`[Helper_WebSocket] Client ${t} error:`, o), this.errorCount++;
+    }), e.on("error", (t) => {
+      console.error(`[Helper_WebSocket] Client ${n} error:`, t), this.errorCount++;
     });
   }
-  sendDeviceInfo(e, t) {
-    const o = {
+  sendDeviceInfo(e, n) {
+    const t = {
       type: "device-connected",
       timestamp: Date.now().toString(),
-      mac: R.getFormattedMacAddress(),
-      ip: R.getLocalIPv4(),
+      mac: _.getFormattedMacAddress(),
+      ip: _.getLocalIPv4(),
       port: this.port,
       protocol: "WebSocket",
-      clientId: t,
+      clientId: n,
       note: "Send data as text or binary - both supported"
     };
-    e.send(JSON.stringify(o)), this.messagesSent++;
+    e.send(JSON.stringify(t)), this.messagesSent++;
   }
-  sendError(e, t, o = "") {
-    const n = {
+  sendError(e, n, t = "") {
+    const i = {
       type: "error",
-      error: t,
-      context: o,
+      error: n,
+      context: t,
       timestamp: Date.now()
     };
     try {
-      e.send(JSON.stringify(n)), this.messagesSent++;
+      e.send(JSON.stringify(i)), this.messagesSent++;
     } catch {
     }
   }
   // Optional helpers if you want parity methods for broadcast, etc.
   broadcastJSON(e) {
     if (!this.wss) return;
-    const t = JSON.stringify(e);
-    for (const [, o] of this.connectedClients)
-      o.readyState === o.OPEN && o.send(t);
+    const n = JSON.stringify(e);
+    for (const [, t] of this.connectedClients)
+      t.readyState === t.OPEN && t.send(n);
     this.messagesSent += this.connectedClients.size;
   }
   getStats() {
@@ -322,15 +322,15 @@ const R = class R {
     };
   }
   static getFormattedMacAddress() {
-    var i;
+    var o;
     if (this.cachedMac) return this.cachedMac;
-    const e = A();
-    for (const l of Object.keys(e))
-      for (const m of e[l] || [])
-        if (!m.internal && m.mac && m.mac !== "00:00:00:00:00:00")
-          return this.cachedMac = m.mac.toUpperCase(), this.cachedMac;
-    const t = oe().toUpperCase(), o = (l) => l.padEnd(12, "0").slice(0, 12), n = Buffer.from(o(t)).toString("hex").slice(0, 12).toUpperCase();
-    return this.cachedMac = ((i = n.match(/.{1,2}/g)) == null ? void 0 : i.join(":")) ?? "00:00:00:00:00:00", this.cachedMac;
+    const e = F();
+    for (const a of Object.keys(e))
+      for (const d of e[a] || [])
+        if (!d.internal && d.mac && d.mac !== "00:00:00:00:00:00")
+          return this.cachedMac = d.mac.toUpperCase(), this.cachedMac;
+    const n = de().toUpperCase(), t = (a) => a.padEnd(12, "0").slice(0, 12), i = Buffer.from(t(n)).toString("hex").slice(0, 12).toUpperCase();
+    return this.cachedMac = ((o = i.match(/.{1,2}/g)) == null ? void 0 : o.join(":")) ?? "00:00:00:00:00:00", this.cachedMac;
   }
   static getHeartbeat() {
     return {
@@ -338,41 +338,66 @@ const R = class R {
       timestamp: Date.now(),
       status: "ok",
       mac: this.getFormattedMacAddress(),
-      ip: R.getLocalIPv4(),
-      uptime: Math.floor(ie() * 1e3),
-      freeHeap: re(),
+      ip: _.getLocalIPv4(),
+      uptime: Math.floor(ue() * 1e3),
+      freeHeap: me(),
       // "free-ish" bytes
       firmware: process.env.npm_package_version || "0.0.0",
-      platform: ne()
+      platform: ge()
     };
   }
   static getLocalIPv4() {
-    const e = A();
-    for (const t of Object.keys(e))
-      for (const o of e[t] || [])
-        if (!o.internal && o.family === "IPv4" && o.address) return o.address;
+    const e = F();
+    for (const n of Object.keys(e))
+      for (const t of e[n] || [])
+        if (!t.internal && t.family === "IPv4" && t.address) return t.address;
     return "0.0.0.0";
   }
 };
 // Cached "MAC" equivalent (closest parity to ESP32 getFormattedMacAddress)
-h(R, "cachedMac", null);
-let x = R;
-const W = u.dirname(de(import.meta.url));
-let y = null, O = null;
-function N() {
+v(_, "cachedMac", null);
+let T = _;
+const W = f.dirname(Se(import.meta.url));
+let S = null, z = null;
+const fe = () => {
+  const s = h.getPath("userData");
+  return f.join(s, "jr-preferences.json");
+}, V = {
+  fullscreenMode: !0
+}, Pe = () => {
   try {
-    const s = process.env.APP_ROOT || u.join(W, ".."), e = u.join(s, "package.json"), t = JSON.parse(ge.readFileSync(e, "utf8"));
-    if (t != null && t.version && typeof t.version == "string") return t.version;
+    const s = fe();
+    if (j.existsSync(s)) {
+      const e = j.readFileSync(s, "utf8"), n = JSON.parse(e);
+      return console.log("[main] ✅ Loaded preferences from disk:", n), { ...V, ...n };
+    } else
+      return console.log("[main] 📄 No preferences file found, using defaults"), V;
+  } catch (s) {
+    return console.warn("[main] ⚠️ Error loading preferences, using defaults:", s), V;
+  }
+}, $e = (s) => {
+  try {
+    const e = fe(), n = f.dirname(e);
+    return j.existsSync(n) || j.mkdirSync(n, { recursive: !0 }), j.writeFileSync(e, JSON.stringify(s, null, 2), "utf8"), console.log("[main] ✅ Saved preferences to disk:", s), !0;
+  } catch (e) {
+    return console.error("[main] ❌ Error saving preferences:", e), !1;
+  }
+};
+let U = Pe();
+function q() {
+  try {
+    const s = process.env.APP_ROOT || f.join(W, ".."), e = f.join(s, "package.json"), n = JSON.parse(j.readFileSync(e, "utf8"));
+    if (n != null && n.version && typeof n.version == "string") return n.version;
   } catch (s) {
     console.warn("[Electron] Failed to read package.json version, falling back:", s);
   }
-  return f.getVersion();
+  return h.getVersion();
 }
-const ue = process.env.JR_GPU === "1";
-process.platform === "linux" && process.arch.startsWith("arm") && !ue && (f.disableHardwareAcceleration(), f.commandLine.appendSwitch("disable-gpu"), f.commandLine.appendSwitch("disable-gpu-compositing"), f.commandLine.appendSwitch("disable-gpu-rasterization"), f.commandLine.appendSwitch("disable-gpu-sandbox"), console.log("[Electron] GPU disabled (Canvas mode)"));
-process.env.JR_CLEAR_CACHE === "1" && f.whenReady().then(async () => {
+const ke = process.env.JR_GPU === "1";
+process.platform === "linux" && process.arch.startsWith("arm") && !ke && (h.disableHardwareAcceleration(), h.commandLine.appendSwitch("disable-gpu"), h.commandLine.appendSwitch("disable-gpu-compositing"), h.commandLine.appendSwitch("disable-gpu-rasterization"), h.commandLine.appendSwitch("disable-gpu-sandbox"), console.log("[Electron] GPU disabled (Canvas mode)"));
+process.env.JR_CLEAR_CACHE === "1" && h.whenReady().then(async () => {
   try {
-    const s = me.defaultSession;
+    const s = we.defaultSession;
     await s.clearCache(), await s.clearStorageData({
       storages: [
         "serviceworkers",
@@ -389,72 +414,81 @@ process.env.JR_CLEAR_CACHE === "1" && f.whenReady().then(async () => {
     console.warn("[Electron] Cache clear failed:", s);
   }
 });
-process.env.APP_ROOT = u.join(W, "..");
-const D = process.env.VITE_DEV_SERVER_URL, $e = u.join(process.env.APP_ROOT, "dist-electron"), M = u.join(process.env.APP_ROOT, "dist");
-process.env.VITE_PUBLIC = D ? u.join(process.env.APP_ROOT, "public") : M;
-let r, a = null;
-function ae() {
-  r = new T({
-    icon: u.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
+process.env.APP_ROOT = f.join(W, "..");
+const O = process.env.VITE_DEV_SERVER_URL, We = f.join(process.env.APP_ROOT, "dist-electron"), x = f.join(process.env.APP_ROOT, "dist");
+process.env.VITE_PUBLIC = O ? f.join(process.env.APP_ROOT, "public") : x;
+let r, l = null, g = null, D = null;
+function M(s, e, n) {
+  if (s && !s.isDestroyed())
+    try {
+      return s.webContents.send(e, n), !0;
+    } catch (t) {
+      return console.error(`[main] Error sending ${e} to window:`, t), !1;
+    }
+  return !1;
+}
+function pe() {
+  r = new J({
+    icon: f.join(process.env.VITE_PUBLIC, "jr_platinum.svg"),
     webPreferences: {
-      preload: u.join(W, "preload.mjs"),
+      preload: f.join(W, "preload.mjs"),
       contextIsolation: !0,
       nodeIntegration: !1,
       webSecurity: !0
     }
-  }), f.isPackaged ? r.loadFile(u.join(M, "index.html")) : D ? (r.webContents.openDevTools(), r.loadURL(D)) : r.loadFile(u.join(M, "index.html"));
+  }), h.isPackaged ? r.loadFile(f.join(x, "index.html")) : O ? (r.webContents.openDevTools(), r.loadURL(O)) : r.loadFile(f.join(x, "index.html"));
 }
-function ye(s) {
-  var e, t, o, n, i, l, m, b, E, _, $;
+function Re(s) {
+  var e, n, t, i, o, a, d, m, p, $, k;
   if (console.log("[main] Processing document type:", s.type), s.type === "rive_config") {
-    console.log("[main] 📋 Received enhanced Rive configuration for screenId:", s.screenId);
-    const c = ((t = (e = s.frameConfig) == null ? void 0 : e.frameConfig) == null ? void 0 : t.rive) || ((o = s.frameConfig) == null ? void 0 : o.rive);
+    console.log("[main] 📋 Received enhanced Rive configuration for screenId:", s.screenId), D = s;
+    const c = ((n = (e = s.frameConfig) == null ? void 0 : e.frameConfig) == null ? void 0 : n.rive) || ((t = s.frameConfig) == null ? void 0 : t.rive);
     if (c) {
       console.log("[main] 📋 Config details:", {
-        canvasSize: (n = s.frameConfig) != null && n.canvas ? `${s.frameConfig.canvas.width}x${s.frameConfig.canvas.height}` : "unknown",
+        canvasSize: (i = s.frameConfig) != null && i.canvas ? `${s.frameConfig.canvas.width}x${s.frameConfig.canvas.height}` : "unknown",
         riveFile: c.file || "none",
         riveFileUrl: c.fileUrl || "none",
         riveEmbedded: c.embedded || !1,
-        elementCount: ((i = s.frameElements) == null ? void 0 : i.length) || 0,
+        elementCount: ((o = s.frameElements) == null ? void 0 : o.length) || 0,
         hasDiscovery: !!c.discovery,
-        stateMachines: ((m = (l = c.discovery) == null ? void 0 : l.machines) == null ? void 0 : m.length) || 0,
-        totalInputs: ((E = (b = c.discovery) == null ? void 0 : b.metadata) == null ? void 0 : E.totalInputs) || 0
-      }), (_ = c.discovery) != null && _.machines && (console.log("[main] 🎮 State machine discovery:"), c.discovery.machines.forEach((p) => {
-        console.log(`[main]   🎯 ${p.name}: ${p.inputs.length} inputs`), p.inputs.forEach((g) => {
-          console.log(`[main]     📊 ${g.name} (${g.type}): ${g.currentValue}`);
+        stateMachines: ((d = (a = c.discovery) == null ? void 0 : a.machines) == null ? void 0 : d.length) || 0,
+        totalInputs: ((p = (m = c.discovery) == null ? void 0 : m.metadata) == null ? void 0 : p.totalInputs) || 0
+      }), ($ = c.discovery) != null && $.machines && (console.log("[main] 🎮 State machine discovery:"), c.discovery.machines.forEach((u) => {
+        console.log(`[main]   🎯 ${u.name}: ${u.inputs.length} inputs`), u.inputs.forEach((w) => {
+          console.log(`[main]     📊 ${w.name} (${w.type}): ${w.currentValue}`);
         });
       }));
-      const v = (($ = s.frameConfig) == null ? void 0 : $.frameElements) || s.frameElements || [], d = v.filter((p) => {
-        var g, k;
-        return ((k = (g = p.riveConnections) == null ? void 0 : g.availableInputs) == null ? void 0 : k.length) > 0;
+      const C = ((k = s.frameConfig) == null ? void 0 : k.frameElements) || s.frameElements || [], y = C.filter((u) => {
+        var w, E;
+        return ((E = (w = u.riveConnections) == null ? void 0 : w.availableInputs) == null ? void 0 : E.length) > 0;
       });
-      console.log(`[main] 📐 Frame elements: ${v.length} total, ${d.length} with Rive connections`), d.forEach((p) => {
-        console.log(`[main]   🔗 ${p.properties.sensorTag || p.id}: ${p.riveConnections.availableInputs.length} Rive connections`), p.riveConnections.availableInputs.forEach((g) => {
-          console.log(`[main]     ⚡ ${g.fullKey} (${g.inputType})`);
+      console.log(`[main] 🔍 Frame elements: ${C.length} total, ${y.length} with Rive connections`), y.forEach((u) => {
+        console.log(`[main]   🔗 ${u.properties.sensorTag || u.id}: ${u.riveConnections.availableInputs.length} Rive connections`), u.riveConnections.availableInputs.forEach((w) => {
+          console.log(`[main]     ⚡ ${w.fullKey} (${w.inputType})`);
         });
       });
     }
-    a && !a.isDestroyed() && (a.webContents.send("rive-config", s), console.log("[main] ✅ Enhanced Rive config forwarded to visualization window")), r && !r.isDestroyed() && r.webContents.send("rive-config", s);
+    M(l, "rive-config", s), M(g, "rive-config", s), M(r, "rive-config", s), console.log("[main] ✅ Enhanced Rive config forwarded to all windows");
     return;
   }
   if (s.type === "rive_sensor") {
     console.log("[main] 📊 Received enhanced Rive sensor data for screenId:", s.screenId);
-    const c = Object.keys(s.sensors || {}), v = c.reduce((d, p) => d + p.split(",").length, 0);
-    console.log("[main] 📊 Sensor payload analysis:"), console.log(`[main]   📦 ${c.length} sensor keys expanding to ${v} individual tags`), c.forEach((d) => {
-      const p = s.sensors[d], g = d.split(",").map((k) => k.trim());
-      g.length > 1 ? (console.log(`[main]   🔀 Multi-tag "${d}" → [${g.join(", ")}]`), console.log(`[main]     📊 Value: ${p.value} ${p.unit}`)) : console.log(`[main]   📊 ${d}: ${p.value} ${p.unit}`);
-    }), a && !a.isDestroyed() && (a.webContents.send("rive-sensor-data", s), console.log("[main] ✅ Enhanced Rive sensor data forwarded to visualization window")), r && !r.isDestroyed() && r.webContents.send("rive-sensor-data", s);
+    const c = Object.keys(s.sensors || {}), C = c.reduce((y, u) => y + u.split(",").length, 0);
+    console.log("[main] 📊 Sensor payload analysis:"), console.log(`[main]   📦 ${c.length} sensor keys expanding to ${C} individual tags`), c.forEach((y) => {
+      const u = s.sensors[y], w = y.split(",").map((E) => E.trim());
+      w.length > 1 ? (console.log(`[main]   🔀 Multi-tag "${y}" → [${w.join(", ")}]`), console.log(`[main]     📊 Value: ${u.value} ${u.unit}`)) : console.log(`[main]   📊 ${y}: ${u.value} ${u.unit}`);
+    }), M(l, "rive-sensor-data", s), M(g, "rive-sensor-data", s), M(r, "rive-sensor-data", s), console.log("[main] ✅ Enhanced Rive sensor data forwarded to all windows");
     return;
   }
   if (s.type === "sensor" && s.sensors) {
-    console.log("[main] 🔄 Processing legacy sensor format");
+    console.log("[main] 📄 Processing legacy sensor format");
     try {
       const c = Object.keys(s.sensors)[0];
       if (c && s.sensors[c] && s.sensors[c][0]) {
-        const v = parseInt(s.sensors[c][0].Value, 10), d = s.sensors[c][0].Unit || "";
-        console.log(`[main] 🔄 Legacy sensor: ${c} = ${v} ${d}`), a && !a.isDestroyed() && a.webContents.send("sensor-data", {
-          value: v,
-          unit: d,
+        const C = parseInt(s.sensors[c][0].Value, 10), y = s.sensors[c][0].Unit || "";
+        console.log(`[main] 📄 Legacy sensor: ${c} = ${C} ${y}`), l && !l.isDestroyed() && l.webContents.send("sensor-data", {
+          value: C,
+          unit: y,
           sensorName: c
         });
       }
@@ -464,15 +498,15 @@ function ye(s) {
     return;
   }
   if (s.type === "heartbeat-response" || s.type === "device-connected") {
-    console.log(`[main] 💓 Received ${s.type}`);
+    console.log(`[main] 💛 Received ${s.type}`);
     return;
   }
   console.log(`[main] ❓ Unknown message type: ${s.type}`), s.type && console.log(`[main] 📋 Message keys: ${Object.keys(s).join(", ")}`);
 }
-async function ve() {
+async function De() {
   try {
-    const { Bonjour: s } = await import("./index-BNgNfdXg.js").then((l) => l.i), e = new s(), t = x.getFormattedMacAddress(), o = `JunctionRelay_Virtual_${t}`, n = e.publish({
-      name: o,
+    const { Bonjour: s } = await import("./index-BNgNfdXg.js").then((a) => a.i), e = new s(), n = T.getFormattedMacAddress(), t = `JunctionRelay_Virtual_${n}`, i = e.publish({
+      name: t,
       type: "junctionrelay",
       // Try without underscores first
       protocol: "tcp",
@@ -480,37 +514,37 @@ async function ve() {
       port: 80,
       txt: {
         type: "virtual_device",
-        firmware: N(),
+        firmware: q(),
         platform: "electron",
-        mac: t
+        mac: n
       }
-    }), i = e.publish({
-      name: `${o}_WS`,
+    }), o = e.publish({
+      name: `${t}_WS`,
       type: "junctionrelay-ws",
       protocol: "tcp",
       port: 81,
       txt: {
         type: "virtual_device_ws",
-        firmware: N(),
+        firmware: q(),
         platform: "electron",
-        mac: t
+        mac: n
       }
     });
-    O = { instance: e, httpService: n, wsService: i }, console.log(`[main] ✅ mDNS services started - device discoverable as ${o}`), console.log("[main] Advertising: junctionrelay.tcp (port 80) and junctionrelay-ws.tcp (port 81)");
+    z = { instance: e, httpService: i, wsService: o }, console.log(`[main] ✅ mDNS services started - device discoverable as ${t}`), console.log("[main] Advertising: junctionrelay.tcp (port 80) and junctionrelay-ws.tcp (port 81)");
   } catch (s) {
     console.log("[main] mDNS service failed to start:", s.message), console.log("[main] Device running without network discovery");
   }
 }
-async function we() {
-  if (console.log("[main] startWebSocketServer() called"), y != null && y.isRunning()) {
+async function Ee() {
+  if (console.log("[main] startWebSocketServer() called"), S != null && S.isRunning()) {
     console.log("[main] Helper_WS already running on :81"), r == null || r.webContents.send("ws-status", { ok: !0, message: "WebSocket already running." });
     return;
   }
   try {
-    console.log("[main] Creating Helper_WebSocket on :81"), y = new x({
+    console.log("[main] Creating Helper_WebSocket on :81"), S = new T({
       port: 81,
       onDocument: (s) => {
-        r == null || r.webContents.send("display:json", s), ye(s);
+        r == null || r.webContents.send("display:json", s), Re(s);
       },
       onProtocol: (s) => {
         console.log("[main] 🔌 Protocol message:", s.type), r == null || r.webContents.send("display:protocol", s);
@@ -518,121 +552,194 @@ async function we() {
       onSystem: (s) => {
         console.log("[main] ⚙️ System message:", s.type), r == null || r.webContents.send("display:system", s);
       }
-    }), await y.start(), console.log("[main] ✅ Helper_WebSocket started on :81"), await ve(), r == null || r.webContents.send("ws-status", { ok: !0, message: "WebSocket server started on :81" });
+    }), await S.start(), console.log("[main] ✅ Helper_WebSocket started on :81"), await De(), r == null || r.webContents.send("ws-status", { ok: !0, message: "WebSocket server started on :81" });
   } catch (s) {
     console.error("[main] Helper_WebSocket failed:", s), r == null || r.webContents.send("ws-status", { ok: !1, message: `Failed to start WebSocket: ${String(s)}` });
   }
 }
-function U() {
-  if (console.log("[main] stopWebSocketServer() called"), O)
+function B() {
+  if (console.log("[main] stopWebSocketServer() called"), z)
     try {
-      O.instance && O.instance.destroy(), O = null, console.log("[main] mDNS services stopped");
+      z.instance && z.instance.destroy(), z = null, console.log("[main] mDNS services stopped");
     } catch (s) {
       console.error("[main] Error stopping mDNS:", s);
     }
-  if (y) {
+  if (S) {
     try {
-      y.stop();
+      S.stop();
     } catch (s) {
       console.error("[main] jrWs.stop error:", s);
     }
-    y = null, console.log("[main] Helper_WS stopped"), r == null || r.webContents.send("ws-status", { ok: !0, message: "WebSocket server stopped." });
+    S = null, console.log("[main] Helper_WS stopped"), r == null || r.webContents.send("ws-status", { ok: !0, message: "WebSocket server stopped." });
     return;
   }
   r == null || r.webContents.send("ws-status", { ok: !0, message: "WebSocket not running." });
 }
-C.on("open-external", (s, e) => {
+b.on("open-external", (s, e) => {
   try {
-    pe.openExternal(e);
-  } catch (t) {
-    console.error("Error opening external URL:", t);
+    ve.openExternal(e);
+  } catch (n) {
+    console.error("Error opening external URL:", n);
   }
 });
-C.handle("get-app-version", () => N());
-C.on("start-ws", () => {
-  we();
+b.handle("get-app-version", () => q());
+b.handle("get-fullscreen-preference", () => (console.log(`[main] 📖 Retrieved fullscreen preference: ${U.fullscreenMode}`), U.fullscreenMode));
+b.on("save-fullscreen-preference", (s, e) => {
+  U.fullscreenMode = e;
+  const n = $e(U);
+  console.log(`[main] ${n ? "✅" : "❌"} Saved fullscreen preference: ${e}`);
 });
-C.on("stop-ws", () => {
-  U();
+b.on("start-ws", () => {
+  Ee();
 });
-C.handle("ws-stats", () => {
+b.on("stop-ws", () => {
+  B();
+});
+b.handle("ws-stats", () => {
   var s;
   try {
-    return ((s = y == null ? void 0 : y.getStats) == null ? void 0 : s.call(y)) ?? null;
+    return ((s = S == null ? void 0 : S.getStats) == null ? void 0 : s.call(S)) ?? null;
   } catch {
     return null;
   }
 });
-C.on("open-visualization", (s, e = {}) => {
+b.on("open-debug-window", () => {
   try {
-    console.log("[main] 🎨 Opening visualization window with options:", e);
-    const t = {
+    if (console.log("[main] 🔍 Opening debug window"), g && !g.isDestroyed()) {
+      g.focus();
+      return;
+    }
+    g = new J({
+      width: 800,
+      height: 600,
+      title: "JunctionRelay Debug Panel",
       webPreferences: {
-        preload: u.join(W, "preload.mjs"),
+        preload: f.join(W, "preload.mjs"),
+        contextIsolation: !0,
+        nodeIntegration: !1,
+        webSecurity: !0
+      },
+      show: !1
+    }), g.on("closed", () => {
+      console.log("[main] 🔍 Debug window closed"), g = null, r && !r.isDestroyed() && r.webContents.send("debug-window-closed");
+    }), g.once("ready-to-show", () => {
+      console.log("[main] 🔍 Debug window ready, showing"), g == null || g.show(), setTimeout(() => {
+        D && g && !g.isDestroyed() && (console.log("[main] 🔍 Sending buffered config to debug window"), g.webContents.send("rive-config", D));
+      }, 500);
+    }), h.isPackaged ? g.loadFile(f.join(x, "index.html"), {
+      query: { debug: "true" }
+    }) : O ? g.loadURL(O + "?debug=true") : g.loadFile(f.join(x, "index.html"), {
+      query: { debug: "true" }
+    }), r && !r.isDestroyed() && r.webContents.send("debug-window-opened"), console.log("[main] ✅ Debug window opened");
+  } catch (s) {
+    console.error("Error opening debug window:", s);
+  }
+});
+b.on("close-debug-window", () => {
+  g && !g.isDestroyed() && (console.log("[main] 🔍 Closing debug window (IPC request)"), g.close(), g = null, r && !r.isDestroyed() && r.webContents.send("debug-window-closed"));
+});
+b.on("open-visualization", (s, e = {}) => {
+  var n, t, i;
+  try {
+    if (console.log("[main] 🎨 Opening visualization window with options:", e), l && !l.isDestroyed()) {
+      console.log("[main] 🎨 Visualization window already exists, focusing it"), l.focus(), s.sender.send("visualization-opened");
+      return;
+    }
+    let o = null, a = null;
+    if (r && !r.isDestroyed())
+      try {
+        a = r.getBounds(), o = ce.getDisplayMatching(a).bounds, console.log(`[main] 🎨 Main window display: ${o.width}x${o.height} at ${o.x},${o.y}`), console.log(`[main] 🎨 Main window bounds: ${a.width}x${a.height} at ${a.x},${a.y}`);
+      } catch (m) {
+        console.warn("[main] ⚠️ Could not get main window display, using primary:", m), o = ce.getPrimaryDisplay().bounds, console.log(`[main] 🎨 Using primary display: ${o.width}x${o.height} at ${o.x},${o.y}`);
+      }
+    const d = {
+      webPreferences: {
+        preload: f.join(W, "preload.mjs"),
         contextIsolation: !0,
         nodeIntegration: !1,
         webSecurity: !0
       },
       show: !1
     };
-    e.fullscreen !== !1 ? Object.assign(t, {
-      fullscreen: !0,
-      frame: !1,
-      alwaysOnTop: !0,
-      skipTaskbar: !0,
-      resizable: !1
-    }) : Object.assign(t, {
-      width: 1e3,
-      height: 700,
-      frame: !0,
-      alwaysOnTop: !1,
-      skipTaskbar: !1,
-      resizable: !0,
-      title: "JunctionRelay Visualization (Debug Mode)"
-    }), a = new T(t), e.fullscreen !== !1 && a.setAlwaysOnTop(!0, "screen-saver"), a.on("closed", () => {
-      console.log("[main] 🎨 Visualization window closed"), a = null, r && !r.isDestroyed() && r.webContents.send("visualization-closed");
-    }), a.once("ready-to-show", () => {
-      console.log("[main] 🎨 Visualization window ready, showing"), a == null || a.show();
-    }), a.webContents.on("before-input-event", (o, n) => {
-      n.key === "Escape" && n.type === "keyDown" && (console.log("[main] 🎨 Escape key pressed, closing visualization"), a == null || a.close());
-    }), f.isPackaged ? a.loadFile(u.join(M, "index.html"), {
+    if (e.fullscreen !== !1)
+      Object.assign(d, {
+        fullscreen: !0,
+        frame: !1,
+        alwaysOnTop: !0,
+        skipTaskbar: !0,
+        resizable: !1
+      }), o && (Object.assign(d, {
+        x: o.x,
+        y: o.y,
+        width: o.width,
+        height: o.height
+      }), console.log(`[main] 🎨 Fullscreen on display: ${o.x},${o.y} ${o.width}x${o.height}`));
+    else {
+      let m = 1e3, p = 700;
+      if (D) {
+        const c = ((t = (n = D.frameConfig) == null ? void 0 : n.frameConfig) == null ? void 0 : t.canvas) || ((i = D.frameConfig) == null ? void 0 : i.canvas);
+        c && c.width && c.height ? (m = c.width, p = c.height, console.log(`[main] 🎨 Using canvas dimensions: ${m}x${p}`)) : console.log(`[main] 🎨 No canvas dimensions found, using default: ${m}x${p}`);
+      } else
+        console.log(`[main] 🎨 No config available, using default dimensions: ${m}x${p}`);
+      let $, k;
+      o && ($ = o.x + Math.floor((o.width - m) / 2), k = o.y + Math.floor((o.height - p) / 2), console.log(`[main] 🎨 Positioning windowed visualization at ${$},${k} on display ${o.x},${o.y}`)), Object.assign(d, {
+        width: m,
+        height: p,
+        x: $,
+        y: k,
+        frame: !0,
+        alwaysOnTop: !1,
+        skipTaskbar: !1,
+        resizable: !0,
+        title: `JunctionRelay Visualization (${m}×${p})`
+      });
+    }
+    l = new J(d), e.fullscreen !== !1 && l.setAlwaysOnTop(!0, "screen-saver"), l.on("closed", () => {
+      console.log("[main] 🎨 Visualization window closed"), l = null, r && !r.isDestroyed() && r.webContents.send("visualization-closed");
+    }), l.once("ready-to-show", () => {
+      console.log("[main] 🎨 Visualization window ready, showing"), l == null || l.show(), setTimeout(() => {
+        D && l && !l.isDestroyed() && (console.log("[main] 🎨 Sending buffered config to visualization window"), l.webContents.send("rive-config", D));
+      }, 500);
+    }), l.webContents.on("before-input-event", (m, p) => {
+      p.key === "Escape" && p.type === "keyDown" && (console.log("[main] 🎨 Escape key pressed, closing visualization"), l == null || l.close());
+    }), h.isPackaged ? l.loadFile(f.join(x, "index.html"), {
       query: { mode: "visualization" }
-    }) : D ? a.loadURL(D + "?mode=visualization") : a.loadFile(u.join(M, "index.html"), {
+    }) : O ? l.loadURL(O + "?mode=visualization") : l.loadFile(f.join(x, "index.html"), {
       query: { mode: "visualization" }
     }), s.sender.send("visualization-opened"), console.log("[main] ✅ Visualization window opened");
-  } catch (t) {
-    console.error("Error opening visualization kiosk:", t);
+  } catch (o) {
+    console.error("Error opening visualization kiosk:", o);
   }
 });
-C.on("close-visualization", (s) => {
-  a && !a.isDestroyed() && (console.log("[main] 🎨 Closing visualization window (IPC request)"), a.close(), a = null, s.sender.send("visualization-closed"));
+b.on("close-visualization", (s) => {
+  l && !l.isDestroyed() && (console.log("[main] 🎨 Closing visualization window (IPC request)"), l.close(), l = null, s.sender.send("visualization-closed"));
 });
-C.on("quit-app", () => {
+b.on("quit-app", () => {
   console.log("[main] 🚪 Quit app requested");
   try {
-    U();
+    B();
   } catch {
   }
-  f.quit();
+  h.quit();
 });
-f.on("window-all-closed", () => {
+h.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     console.log("[main] 🚪 All windows closed, quitting app");
     try {
-      U();
+      B();
     } catch {
     }
-    f.quit(), r = null;
+    h.quit(), r = null;
   }
 });
-f.on("activate", () => {
-  T.getAllWindows().length === 0 && (console.log("[main] 📱 App activated, creating window"), ae());
+h.on("activate", () => {
+  J.getAllWindows().length === 0 && (console.log("[main] 📱 App activated, creating window"), pe());
 });
-f.whenReady().then(() => {
-  console.log("[main] 🚀 App ready, creating main window"), ae();
+h.whenReady().then(() => {
+  console.log("[main] 🚀 App ready, creating main window"), pe();
 });
 export {
-  $e as MAIN_DIST,
-  M as RENDERER_DIST,
-  D as VITE_DEV_SERVER_URL
+  We as MAIN_DIST,
+  x as RENDERER_DIST,
+  O as VITE_DEV_SERVER_URL
 };
