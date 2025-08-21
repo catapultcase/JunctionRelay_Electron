@@ -116,7 +116,7 @@ const _Helper_StreamProcessor = class _Helper_StreamProcessor {
     }
   }
   forward(doc, _srcType, _route) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B;
     const t = doc == null ? void 0 : doc.type;
     if (t === "rive_config" || t === "rive_sensor") {
       if (t === "rive_config" && _Helper_StreamProcessor.VERBOSE_CONFIG_LOGGING) {
@@ -172,15 +172,12 @@ const _Helper_StreamProcessor = class _Helper_StreamProcessor {
       (_x = (_w = this.callbacks).onDocument) == null ? void 0 : _x.call(_w, doc);
       return;
     }
-    if (!((_y = _Helper_StreamProcessor.forward.seenUnknownTypes) == null ? void 0 : _y.has(t))) {
-      if (!_Helper_StreamProcessor.forward.seenUnknownTypes) {
-        _Helper_StreamProcessor.forward.seenUnknownTypes = /* @__PURE__ */ new Set();
-      }
-      _Helper_StreamProcessor.forward.seenUnknownTypes.add(t);
+    if (!_Helper_StreamProcessor.seenUnknownTypes.has(t)) {
+      _Helper_StreamProcessor.seenUnknownTypes.add(t);
       console.log(`[StreamProcessor] Unknown message type '${t}', routing to System callback`);
     }
-    (_A = (_z = this.callbacks).onSystem) == null ? void 0 : _A.call(_z, doc);
-    (_C = (_B = this.callbacks).onDocument) == null ? void 0 : _C.call(_B, doc);
+    (_z = (_y = this.callbacks).onSystem) == null ? void 0 : _z.call(_y, doc);
+    (_B = (_A = this.callbacks).onDocument) == null ? void 0 : _B.call(_A, doc);
   }
   tryParseJSON(buf) {
     try {
@@ -245,6 +242,8 @@ const _Helper_StreamProcessor = class _Helper_StreamProcessor {
 __publicField(_Helper_StreamProcessor, "VERBOSE_SENSOR_LOGGING", false);
 __publicField(_Helper_StreamProcessor, "VERBOSE_CONFIG_LOGGING", true);
 __publicField(_Helper_StreamProcessor, "VERBOSE_ROUTING_LOGGING", false);
+// Static property for tracking seen unknown types
+__publicField(_Helper_StreamProcessor, "seenUnknownTypes", /* @__PURE__ */ new Set());
 // 8 MB
 // Cached "MAC" equivalent (closest parity to ESP32 getFormattedMacAddress)
 __publicField(_Helper_StreamProcessor, "cachedMac", null);
@@ -570,7 +569,10 @@ function createWindow() {
   }
 }
 function processIncomingData(doc) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
+  if (!processIncomingData.seenTypes) {
+    processIncomingData.seenTypes = /* @__PURE__ */ new Set();
+  }
   if (doc.type === "rive_config") {
     {
       console.log("[main] 📋 Received Rive configuration for screenId:", doc.screenId);
@@ -637,10 +639,7 @@ function processIncomingData(doc) {
   if (doc.type === "heartbeat-response" || doc.type === "device-connected") {
     return;
   }
-  if (doc.type && !((_l = processIncomingData.seenTypes) == null ? void 0 : _l.has(doc.type))) {
-    if (!processIncomingData.seenTypes) {
-      processIncomingData.seenTypes = /* @__PURE__ */ new Set();
-    }
+  if (doc.type && !processIncomingData.seenTypes.has(doc.type)) {
     processIncomingData.seenTypes.add(doc.type);
     console.log(`[main] ❓ Unknown message type: ${doc.type}`);
     console.log(`[main] 📋 Message keys: ${Object.keys(doc).join(", ")}`);

@@ -22,6 +22,9 @@ export class Helper_StreamProcessor {
   private static readonly VERBOSE_CONFIG_LOGGING = true;
   private static readonly VERBOSE_ROUTING_LOGGING = false;
 
+  // Static property for tracking seen unknown types
+  private static seenUnknownTypes: Set<string> = new Set();
+
   // Limits (raise if you push big frames)
   private readonly MAX_PAYLOAD_SIZE = 8 * 1024 * 1024; // 8 MB
 
@@ -266,11 +269,8 @@ export class Helper_StreamProcessor {
     }
 
     // Unknown → treat like system (log once per type)
-    if (!Helper_StreamProcessor.forward.seenUnknownTypes?.has(t)) {
-      if (!Helper_StreamProcessor.forward.seenUnknownTypes) {
-        Helper_StreamProcessor.forward.seenUnknownTypes = new Set();
-      }
-      Helper_StreamProcessor.forward.seenUnknownTypes.add(t);
+    if (!Helper_StreamProcessor.seenUnknownTypes.has(t)) {
+      Helper_StreamProcessor.seenUnknownTypes.add(t);
       console.log(`[StreamProcessor] Unknown message type '${t}', routing to System callback`);
     }
     this.callbacks.onSystem?.(doc);

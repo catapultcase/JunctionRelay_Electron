@@ -171,6 +171,10 @@ function createWindow() {
 
 // Enhanced sensor and config data processing with reduced logging
 function processIncomingData(doc: Record<string, any>) {
+  // Static property for tracking seen unknown types
+  if (!processIncomingData.seenTypes) {
+    processIncomingData.seenTypes = new Set<string>();
+  }
   // Handle enhanced Rive configuration payloads
   if (doc.type === "rive_config") {
     if (VERBOSE_CONFIG_LOGGING) {
@@ -295,14 +299,16 @@ function processIncomingData(doc: Record<string, any>) {
   }
 
   // Log unknown message types for debugging (but only once per type)
-  if (doc.type && !processIncomingData.seenTypes?.has(doc.type)) {
-    if (!processIncomingData.seenTypes) {
-      processIncomingData.seenTypes = new Set();
-    }
+  if (doc.type && !processIncomingData.seenTypes.has(doc.type)) {
     processIncomingData.seenTypes.add(doc.type);
     console.log(`[main] ❓ Unknown message type: ${doc.type}`);
     console.log(`[main] 📋 Message keys: ${Object.keys(doc).join(', ')}`);
   }
+}
+
+// Add type declaration for the function property
+declare namespace processIncomingData {
+  let seenTypes: Set<string>;
 }
 
 async function startMDNSService() {
