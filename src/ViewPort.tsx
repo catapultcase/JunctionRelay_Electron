@@ -194,6 +194,15 @@ interface DisplayElement {
   };
 }
 
+interface CanvasBounds {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  scaleX: number;
+  scaleY: number;
+}
+
 export default function SensorTest() {
   // Core state
   const [riveConfig, setRiveConfig] = useState<RiveConfig | null>(null);
@@ -201,6 +210,10 @@ export default function SensorTest() {
   const [currentSensorData, setCurrentSensorData] = useState<Record<string, any>>({});
   const [riveFileBlob, setRiveFileBlob] = useState<string | null>(null);
   const [isConfigured, setIsConfigured] = useState(false);
+
+  // Canvas positioning state
+  const [canvasBounds, setCanvasBounds] = useState<CanvasBounds | null>(null);
+  const riveContainerRef = useRef<HTMLDivElement>(null);
 
   // Rive state machine mappings - maps sensor tags to Rive inputs
   const [sensorToRiveMap, setSensorToRiveMap] = useState<Record<string, string[]>>({});
@@ -233,6 +246,58 @@ export default function SensorTest() {
     }
   };
 
+  // Calculate canvas bounds and scaling for overlay positioning
+  const calculateCanvasBounds = () => {
+    if (!riveContainerRef.current || !riveConfig) return;
+
+    const container = riveContainerRef.current;
+    const containerRect = container.getBoundingClientRect();
+    
+    // Get the configured canvas dimensions
+    const canvasConfig = getCanvasConfig(riveConfig);
+    const targetAspect = canvasConfig.width / canvasConfig.height;
+    const containerAspect = containerRect.width / containerRect.height;
+
+    let canvasWidth, canvasHeight, canvasLeft, canvasTop;
+
+    // Calculate actual canvas dimensions using Fit.Contain logic
+    if (containerAspect > targetAspect) {
+      // Container is wider than target aspect - fit by height
+      canvasHeight = containerRect.height;
+      canvasWidth = canvasHeight * targetAspect;
+      canvasLeft = (containerRect.width - canvasWidth) / 2;
+      canvasTop = 0;
+    } else {
+      // Container is taller than target aspect - fit by width
+      canvasWidth = containerRect.width;
+      canvasHeight = canvasWidth / targetAspect;
+      canvasLeft = 0;
+      canvasTop = (containerRect.height - canvasHeight) / 2;
+    }
+
+    const scaleX = canvasWidth / canvasConfig.width;
+    const scaleY = canvasHeight / canvasConfig.height;
+
+    const bounds: CanvasBounds = {
+      left: canvasLeft,
+      top: canvasTop,
+      width: canvasWidth,
+      height: canvasHeight,
+      scaleX,
+      scaleY,
+    };
+
+    setCanvasBounds(bounds);
+
+    if (isDebugMode) {
+      addConfigMessage(`📐 Canvas bounds calculated:`);
+      addConfigMessage(`  Container: ${containerRect.width}×${containerRect.height}`);
+      addConfigMessage(`  Config: ${canvasConfig.width}×${canvasConfig.height}`);
+      addConfigMessage(`  Actual canvas: ${canvasWidth}×${canvasHeight} at ${canvasLeft},${canvasTop}`);
+      addConfigMessage(`  Scale: ${scaleX.toFixed(3)}×${scaleY.toFixed(3)}`);
+    }
+  };
+
   // Load Google Fonts when elements change
   useEffect(() => {
     const fontsToLoad = new Set<string>();
@@ -246,6 +311,18 @@ export default function SensorTest() {
 
     fontsToLoad.forEach(loadGoogleFont);
   }, [displayElements]);
+
+  // Recalculate canvas bounds when window resizes or config changes
+  useEffect(() => {
+    calculateCanvasBounds();
+
+    const handleResize = () => {
+      calculateCanvasBounds();
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [riveConfig, riveContainerRef.current]);
 
   // Get canvas dimensions and background from config
   const getCanvasConfig = (config: RiveConfig) => {
@@ -263,17 +340,17 @@ export default function SensorTest() {
 
   // Process Rive file data (embedded, URL, or file reference)
   const processRiveFileData = async (config: RiveConfig) => {
-    addConfigMessage("📁 Starting Rive file processing...");
+    addConfigMessage("🔍 Starting Rive file processing...");
     
     const riveConfig = config.frameConfig?.frameConfig?.rive || config.frameConfig?.rive;
     
     if (isDebugMode && riveConfig) {
-      addConfigMessage(`📁 Rive config found: ${riveConfig ? 'Yes' : 'No'}`);
-      addConfigMessage(`📁 Rive config keys: ${Object.keys(riveConfig).join(', ')}`);
-      addConfigMessage(`📁 fileUrl: ${riveConfig.fileUrl || 'None'}`);
-      addConfigMessage(`📁 file: ${riveConfig.file || 'None'}`);
-      addConfigMessage(`📁 embedded: ${riveConfig.embedded || 'None'}`);
-      addConfigMessage(`📁 fileData length: ${riveConfig.fileData?.length || 0}`);
+      addConfigMessage(`🔍 Rive config found: ${riveConfig ? 'Yes' : 'No'}`);
+      addConfigMessage(`🔍 Rive config keys: ${Object.keys(riveConfig).join(', ')}`);
+      addConfigMessage(`🔍 fileUrl: ${riveConfig.fileUrl || 'None'}`);
+      addConfigMessage(`🔍 file: ${riveConfig.file || 'None'}`);
+      addConfigMessage(`🔍 embedded: ${riveConfig.embedded || 'None'}`);
+      addConfigMessage(`🔍 fileData length: ${riveConfig.fileData?.length || 0}`);
       
       if (riveConfig.discovery) {
         addConfigMessage(`🎮 Discovery found: ${riveConfig.discovery.machines.length} machines`);
@@ -577,6 +654,9 @@ export default function SensorTest() {
       } else {
         addConfigMessage(`⚠️ No state machines found`);
       }
+      
+      // Recalculate bounds after Rive loads
+      setTimeout(calculateCanvasBounds, 100);
     },
     onLoadError: (error: any) => {
       addConfigMessage(`❌ Rive load error: ${error}`);
@@ -631,9 +711,9 @@ export default function SensorTest() {
     return () => clearTimeout(timer);
   }, [rive, currentSensorData]);
 
-  // Render overlay elements
+  // Render overlay elements with canvas-relative positioning
   const renderOverlayElements = () => {
-    if (!riveConfig) return null;
+    if (!riveConfig || !canvasBounds) return null;
 
     return displayElements.map((element) => {
       let content = '';
@@ -659,16 +739,23 @@ export default function SensorTest() {
         loadGoogleFont(fontFamily);
       }
 
+      // Calculate position relative to canvas bounds instead of full window
+      const scaledLeft = canvasBounds.left + (element.position.x * canvasBounds.scaleX);
+      const scaledTop = canvasBounds.top + (element.position.y * canvasBounds.scaleY);
+      const scaledWidth = element.position.width * canvasBounds.scaleX;
+      const scaledHeight = element.position.height * canvasBounds.scaleY;
+      const scaledFontSize = fontSize * Math.min(canvasBounds.scaleX, canvasBounds.scaleY);
+
       return (
         <div
           key={element.id}
           style={{
             position: 'absolute',
-            left: element.position.x,
-            top: element.position.y,
-            width: element.position.width,
-            height: element.position.height,
-            fontSize: `${fontSize}px`,
+            left: scaledLeft,
+            top: scaledTop,
+            width: scaledWidth,
+            height: scaledHeight,
+            fontSize: `${scaledFontSize}px`,
             fontFamily: `"${fontFamily}", "Orbitron", "Courier New", monospace, sans-serif`,
             color: textColor,
             fontWeight: fontWeight,
@@ -710,6 +797,8 @@ export default function SensorTest() {
           <div>Status: {isConfigured ? '✅ Configured' : '⏳ Waiting for config'}</div>
           <div>Rive File: {riveFileBlob ? '✅ Loaded' : '❌ None'}</div>
           <div>Canvas: {canvasConfig ? `${canvasConfig.width}×${canvasConfig.height}` : 'Unknown'}</div>
+          <div>Canvas Bounds: {canvasBounds ? `${Math.round(canvasBounds.width)}×${Math.round(canvasBounds.height)} at ${Math.round(canvasBounds.left)},${Math.round(canvasBounds.top)}` : 'Not calculated'}</div>
+          <div>Scale: {canvasBounds ? `${canvasBounds.scaleX.toFixed(3)}×${canvasBounds.scaleY.toFixed(3)}` : 'N/A'}</div>
           <div>Elements: {displayElements.length}</div>
           <div>Sensors: {Object.keys(currentSensorData).length}</div>
           <div>IPC: {window.ipcRenderer ? '✅' : '❌'}</div>
@@ -793,6 +882,24 @@ export default function SensorTest() {
           </div>
         )}
 
+        {canvasBounds && displayElements.length > 0 && (
+          <div style={{ marginBottom: '20px' }}>
+            <h3 style={{ color: '#09f', margin: '0 0 10px 0' }}>📐 Element Positioning</h3>
+            <div style={{ backgroundColor: '#111', padding: '10px', borderRadius: '4px', maxHeight: '150px', overflow: 'auto' }}>
+              {displayElements.map(element => {
+                const scaledLeft = canvasBounds.left + (element.position.x * canvasBounds.scaleX);
+                const scaledTop = canvasBounds.top + (element.position.y * canvasBounds.scaleY);
+                return (
+                  <div key={element.id} style={{ marginBottom: '2px', fontSize: '11px' }}>
+                    <span style={{ color: '#09f' }}>{element.id}:</span>
+                    <span style={{ color: '#999' }}> Config({element.position.x},{element.position.y}) → Screen({Math.round(scaledLeft)},{Math.round(scaledTop)})</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div style={{ marginTop: '20px' }}>
           <button 
             onClick={() => window.location.reload()}
@@ -855,11 +962,16 @@ export default function SensorTest() {
       cursor: 'none',
     }}>
       {/* Rive animation */}
-      {riveFileBlob && (
-        <RiveComponent style={{ width: '100%', height: '100%' }} />
-      )}
+      <div 
+        ref={riveContainerRef}
+        style={{ width: '100%', height: '100%' }}
+      >
+        {riveFileBlob && (
+          <RiveComponent style={{ width: '100%', height: '100%' }} />
+        )}
+      </div>
 
-      {/* Overlay elements */}
+      {/* Overlay elements positioned relative to canvas */}
       {renderOverlayElements()}
     </div>
   );
