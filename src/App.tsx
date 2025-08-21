@@ -195,7 +195,6 @@ export default function App() {
     if (!window.ipcRenderer) return setToast({ msg: "ipcRenderer unavailable.", type: "error" });
     try {
       window.ipcRenderer.send("open-debug-window");
-      setToast({ msg: "Opening Debug Window…", type: "info" });
     } catch {
       setToast({ msg: "Failed to open debug window.", type: "error" });
     }
@@ -205,7 +204,6 @@ export default function App() {
     if (!window.ipcRenderer) return setToast({ msg: "ipcRenderer unavailable.", type: "error" });
     try {
       window.ipcRenderer.send("close-debug-window");
-      setToast({ msg: "Closing Debug Window…", type: "info" });
     } catch {
       setToast({ msg: "Failed to close debug window.", type: "error" });
     }
@@ -290,85 +288,31 @@ export default function App() {
                 {wsRunning ? "⏹️ Stop WebSocket Server" : "▶️ Start WebSocket Server"}
               </button>
               
-              {/* Beautiful Toggle Switch */}
-              <div style={{ 
-                display: "flex", 
-                alignItems: "center", 
-                gap: "16px", 
-                padding: "12px 20px", 
-                backgroundColor: "#1e1e1e", 
-                borderRadius: "12px",
-                border: "2px solid #444",
-                minWidth: "200px"
-              }}>
-                <span style={{ 
-                  fontSize: "14px", 
-                  color: "#fff", 
-                  fontWeight: "500",
-                  minWidth: "50px" 
-                }}>
-                  Mode:
-                </span>
-                
-                {/* Custom Toggle Switch */}
-                <div 
-                  style={{ 
-                    position: "relative",
-                    width: "80px",
-                    height: "40px",
-                    backgroundColor: fullscreenMode ? "#0d7377" : "#d32f2f",
-                    borderRadius: "20px",
-                    cursor: "pointer",
-                    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                    boxShadow: "inset 0 2px 4px rgba(0,0,0,0.3)",
-                    border: "3px solid " + (fullscreenMode ? "#4fc3f7" : "#ff7043")
-                  }}
-                  onClick={() => {
-                    const newMode = !fullscreenMode;
-                    setFullscreenMode(newMode);
-                    // Save preference via IPC
-                    if (window.ipcRenderer) {
-                      console.log("[App] Saving fullscreen preference:", newMode);
-                      window.ipcRenderer.send('save-fullscreen-preference', newMode);
-                    }
-                    setToast({ 
-                      msg: `Mode switched to ${newMode ? 'Fullscreen' : 'Windowed'}`, 
-                      type: "info" 
-                    });
-                  }}
-                >
-                  {/* Slider Circle */}
-                  <div style={{
-                    position: "absolute",
-                    top: "3px",
-                    left: fullscreenMode ? "43px" : "3px",
-                    width: "32px",
-                    height: "32px",
-                    backgroundColor: "#ffffff",
-                    borderRadius: "50%",
-                    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                    boxShadow: "0 4px 8px rgba(0,0,0,0.4)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "16px"
-                  }}>
-                    {fullscreenMode ? "🖥️" : "🪟"}
-                  </div>
-                </div>
-                
-                {/* Status Text */}
-                <div style={{ 
-                  fontSize: "14px", 
-                  color: fullscreenMode ? "#4fc3f7" : "#ff7043",
-                  fontWeight: "600",
-                  minWidth: "80px",
-                  textTransform: "uppercase",
-                  letterSpacing: "1px"
-                }}>
-                  {fullscreenMode ? "FULLSCREEN" : "WINDOWED"}
-                </div>
-              </div>
+              <button 
+                style={{ 
+                  padding: "10px 14px", 
+                  cursor: "pointer",
+                  backgroundColor: fullscreenMode ? "#007acc" : "#6c757d",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "4px"
+                }} 
+                onClick={() => {
+                  const newMode = !fullscreenMode;
+                  setFullscreenMode(newMode);
+                  // Save preference via IPC
+                  if (window.ipcRenderer) {
+                    console.log("[App] Saving fullscreen preference:", newMode);
+                    window.ipcRenderer.send('save-fullscreen-preference', newMode);
+                  }
+                  setToast({ 
+                    msg: `Mode switched to ${newMode ? 'Fullscreen' : 'Windowed'}`, 
+                    type: "info" 
+                  });
+                }}
+              >
+                {fullscreenMode ? "🖥️ Fullscreen" : "🪟 Windowed"}
+              </button>
 
               <button 
                 style={{ 

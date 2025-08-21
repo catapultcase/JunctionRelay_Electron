@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, session } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, session, screen } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -10,10 +10,58 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 let jrWs: Helper_WebSocket | null = null;
 let mdnsService: any = null;
 
-// Storage for user preferences
-let userPreferences = {
-  fullscreenMode: true // Default to fullscreen
+// Preferences file path
+const getPreferencesPath = () => {
+  const userDataPath = app.getPath('userData');
+  return path.join(userDataPath, 'jr-preferences.json');
 };
+
+// Default preferences
+const defaultPreferences = {
+  fullscreenMode: true
+};
+
+// Load preferences from file
+const loadPreferences = () => {
+  try {
+    const prefsPath = getPreferencesPath();
+    if (fs.existsSync(prefsPath)) {
+      const data = fs.readFileSync(prefsPath, 'utf8');
+      const parsed = JSON.parse(data);
+      console.log('[main] ✅ Loaded preferences from disk:', parsed);
+      return { ...defaultPreferences, ...parsed };
+    } else {
+      console.log('[main] 📄 No preferences file found, using defaults');
+      return defaultPreferences;
+    }
+  } catch (error) {
+    console.warn('[main] ⚠️ Error loading preferences, using defaults:', error);
+    return defaultPreferences;
+  }
+};
+
+// Save preferences to file
+const savePreferences = (preferences: any) => {
+  try {
+    const prefsPath = getPreferencesPath();
+    const userDataPath = path.dirname(prefsPath);
+    
+    // Ensure user data directory exists
+    if (!fs.existsSync(userDataPath)) {
+      fs.mkdirSync(userDataPath, { recursive: true });
+    }
+    
+    fs.writeFileSync(prefsPath, JSON.stringify(preferences, null, 2), 'utf8');
+    console.log('[main] ✅ Saved preferences to disk:', preferences);
+    return true;
+  } catch (error) {
+    console.error('[main] ❌ Error saving preferences:', error);
+    return false;
+  }
+};
+
+// Load preferences on startup
+let userPreferences = loadPreferences();
 
 // ---------- Version helper: read from package.json (fallback to app.getVersion) ----------
 function getAppVersion(): string {
@@ -156,7 +204,7 @@ function processIncomingData(doc: Record<string, any>) {
       // Log frame elements with Rive connections
       const elements = doc.frameConfig?.frameElements || doc.frameElements || [];
       const elementsWithConnections = elements.filter((el: any) => el.riveConnections?.availableInputs?.length > 0);
-      console.log(`[main] 📐 Frame elements: ${elements.length} total, ${elementsWithConnections.length} with Rive connections`);
+      console.log(`[main] 🔍 Frame elements: ${elements.length} total, ${elementsWithConnections.length} with Rive connections`);
       
       elementsWithConnections.forEach((element: any) => {
         console.log(`[main]   🔗 ${element.properties.sensorTag || element.id}: ${element.riveConnections.availableInputs.length} Rive connections`);
@@ -212,7 +260,7 @@ function processIncomingData(doc: Record<string, any>) {
 
   // Legacy sensor processing for backward compatibility
   if (doc.type === "sensor" && doc.sensors) {
-    console.log("[main] 🔄 Processing legacy sensor format");
+    console.log("[main] 📄 Processing legacy sensor format");
     try {
       // Get the first sensor in the payload
       const firstSensorKey = Object.keys(doc.sensors)[0];
@@ -220,7 +268,7 @@ function processIncomingData(doc: Record<string, any>) {
         const sensorValue = parseInt(doc.sensors[firstSensorKey][0].Value, 10);
         const sensorUnit = doc.sensors[firstSensorKey][0].Unit || "";
         
-        console.log(`[main] 🔄 Legacy sensor: ${firstSensorKey} = ${sensorValue} ${sensorUnit}`);
+        console.log(`[main] 📄 Legacy sensor: ${firstSensorKey} = ${sensorValue} ${sensorUnit}`);
         
         // Forward to visualization window (legacy format)
         if (kioskWindow && !kioskWindow.isDestroyed()) {
@@ -239,7 +287,7 @@ function processIncomingData(doc: Record<string, any>) {
 
   // Handle other message types
   if (doc.type === "heartbeat-response" || doc.type === "device-connected") {
-    console.log(`[main] 💓 Received ${doc.type}`);
+    console.log(`[main] 💛 Received ${doc.type}`);
     return;
   }
 
@@ -378,15 +426,16 @@ ipcMain.on('open-external', (_, url) => {
 // IPC: app version for renderer, read from package.json
 ipcMain.handle('get-app-version', () => getAppVersion())
 
-// IPC: fullscreen preference storage
+// IPC: fullscreen preference storage (now with file persistence)
 ipcMain.handle('get-fullscreen-preference', () => {
-  console.log(`[main] Retrieved fullscreen preference: ${userPreferences.fullscreenMode}`);
+  console.log(`[main] 📖 Retrieved fullscreen preference: ${userPreferences.fullscreenMode}`);
   return userPreferences.fullscreenMode;
 });
 
 ipcMain.on('save-fullscreen-preference', (_, preference: boolean) => {
   userPreferences.fullscreenMode = preference;
-  console.log(`[main] ✅ Saved fullscreen preference: ${preference}`);
+  const saved = savePreferences(userPreferences);
+  console.log(`[main] ${saved ? '✅' : '❌'} Saved fullscreen preference: ${preference}`);
 });
 
 // WebSocket IPC handlers
@@ -487,7 +536,27 @@ ipcMain.on('open-visualization', (event, options = {}) => {
       return;
     }
     
-    const windowOptions = {
+    // Get the main window's display to ensure ViewPort opens on the same screen
+    let displayBounds = null;
+    let mainWindowBounds = null;
+    
+    if (win && !win.isDestroyed()) {
+      try {
+        mainWindowBounds = win.getBounds();
+        const mainWindowDisplay = screen.getDisplayMatching(mainWindowBounds);
+        displayBounds = mainWindowDisplay.bounds;
+        console.log(`[main] 🎨 Main window display: ${displayBounds.width}x${displayBounds.height} at ${displayBounds.x},${displayBounds.y}`);
+        console.log(`[main] 🎨 Main window bounds: ${mainWindowBounds.width}x${mainWindowBounds.height} at ${mainWindowBounds.x},${mainWindowBounds.y}`);
+      } catch (error) {
+        console.warn("[main] ⚠️ Could not get main window display, using primary:", error);
+        // Fallback to primary display
+        const primaryDisplay = screen.getPrimaryDisplay();
+        displayBounds = primaryDisplay.bounds;
+        console.log(`[main] 🎨 Using primary display: ${displayBounds.width}x${displayBounds.height} at ${displayBounds.x},${displayBounds.y}`);
+      }
+    }
+    
+    const windowOptions: any = {
       webPreferences: {
         preload: path.join(__dirname, 'preload.mjs'),
         contextIsolation: true,
@@ -499,7 +568,7 @@ ipcMain.on('open-visualization', (event, options = {}) => {
 
     // Apply fullscreen or windowed mode based on options
     if (options.fullscreen !== false) {
-      // Default: fullscreen kiosk mode
+      // Fullscreen kiosk mode
       Object.assign(windowOptions, {
         fullscreen: true,
         frame: false,
@@ -507,6 +576,17 @@ ipcMain.on('open-visualization', (event, options = {}) => {
         skipTaskbar: true,
         resizable: false,
       });
+      
+      // Position on the same display as main window
+      if (displayBounds) {
+        Object.assign(windowOptions, {
+          x: displayBounds.x,
+          y: displayBounds.y,
+          width: displayBounds.width,
+          height: displayBounds.height,
+        });
+        console.log(`[main] 🎨 Fullscreen on display: ${displayBounds.x},${displayBounds.y} ${displayBounds.width}x${displayBounds.height}`);
+      }
     } else {
       // Windowed mode - use canvas dimensions if available
       let windowWidth = 1000;
@@ -525,9 +605,21 @@ ipcMain.on('open-visualization', (event, options = {}) => {
         console.log(`[main] 🎨 No config available, using default dimensions: ${windowWidth}x${windowHeight}`);
       }
       
+      // Position windowed mode on the same display, centered
+      let windowX = undefined;
+      let windowY = undefined;
+      
+      if (displayBounds) {
+        windowX = displayBounds.x + Math.floor((displayBounds.width - windowWidth) / 2);
+        windowY = displayBounds.y + Math.floor((displayBounds.height - windowHeight) / 2);
+        console.log(`[main] 🎨 Positioning windowed visualization at ${windowX},${windowY} on display ${displayBounds.x},${displayBounds.y}`);
+      }
+      
       Object.assign(windowOptions, {
         width: windowWidth,
         height: windowHeight,
+        x: windowX,
+        y: windowY,
         frame: true,
         alwaysOnTop: false,
         skipTaskbar: false,
