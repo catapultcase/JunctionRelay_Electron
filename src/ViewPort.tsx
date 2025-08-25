@@ -6,7 +6,7 @@ import {
   Alignment,
 } from '@rive-app/react-canvas'
 
-// Google Fonts loader utility
+// Google Fonts loader utility - EXACT COPY from FrameEngine_Canvas
 const loadGoogleFont = (fontFamily: string) => {
   if (!fontFamily || fontFamily.includes('system') || fontFamily.includes('sans-serif') ||
       document.querySelector(`link[href*="${fontFamily.replace(/\s+/g, '+')}"]`)) {
@@ -124,6 +124,8 @@ interface RiveConfig {
         text?: string;
         textAlign?: string;
         backgroundColor?: string;
+        textShadow?: boolean;
+        textBorder?: boolean;
         [key: string]: any;
       };
       lastModified?: string;
@@ -154,6 +156,8 @@ interface RiveConfig {
       text?: string;
       textAlign?: string;
       backgroundColor?: string;
+      textShadow?: boolean;
+      textBorder?: boolean;
       [key: string]: any;
     };
     lastModified?: string;
@@ -203,7 +207,7 @@ interface CanvasBounds {
   scaleY: number;
 }
 
-export default function SensorTest() {
+export default function ViewPort() {
   // Core state
   const [riveConfig, setRiveConfig] = useState<RiveConfig | null>(null);
   const [displayElements, setDisplayElements] = useState<DisplayElement[]>([]);
@@ -234,14 +238,14 @@ export default function SensorTest() {
   // Debug helpers - only active in debug mode
   const addDebugMessage = (message: string) => {
     if (isDebugMode) {
-      console.log(`[SensorTest] ${message}`);
+      console.log(`[ViewPort] ${message}`);
       setDebugMessages(prev => [...prev.slice(-9), `${new Date().toLocaleTimeString()}: ${message}`]);
     }
   };
 
   const addConfigMessage = (message: string) => {
     if (isDebugMode) {
-      console.log(`[SensorTest-Config] ${message}`);
+      console.log(`[ViewPort-Config] ${message}`);
       setConfigMessages(prev => [...prev.slice(-9), `${new Date().toLocaleTimeString()}: ${message}`]);
     }
   };
@@ -298,7 +302,7 @@ export default function SensorTest() {
     }
   };
 
-  // Load Google Fonts when elements change
+  // Load Google Fonts when elements change - EXACT COPY from FrameEngine_Canvas
   useEffect(() => {
     const fontsToLoad = new Set<string>();
 
@@ -711,62 +715,108 @@ export default function SensorTest() {
     return () => clearTimeout(timer);
   }, [rive, currentSensorData]);
 
-  // Render overlay elements with canvas-relative positioning
+  // Render overlay elements with canvas-relative positioning - FIXED VERSION
   const renderOverlayElements = () => {
     if (!riveConfig || !canvasBounds) return null;
 
     return displayElements.map((element) => {
       let content = '';
       let textColor = element.properties.textColor || element.properties.color || '#929e00';
-      
+
       if (element.type === 'sensor' && element.sensorTag) {
         const sensorData = currentSensorData[element.sensorTag];
         const value = sensorData?.value?.toString() || element.properties.placeholderValue || '--';
         const unit = sensorData?.unit || element.properties.placeholderUnit || '';
         const showUnit = element.properties.showUnit !== false;
-        
-        content = showUnit && unit ? `${value} ${unit}` : value;
+        const showLabel = element.properties.showLabel !== false; 
+        const label = element.properties.placeholderSensorLabel || ''; 
+
+        let contentParts = [];
+
+        if (showLabel && label) {
+          contentParts.push(label);
+        }
+
+        contentParts.push(value);
+
+        if (showUnit && unit) {
+          contentParts.push(unit);
+        }
+
+        content = contentParts.join(' ');
       } else if (element.type === 'text') {
         content = element.properties.text || '';
       }
 
       const fontSize = element.properties.fontSize || 32;
-      const fontFamily = element.properties.fontFamily || 'Orbitron';
+      
+      // FIX: Use the font from config, fallback to system font instead of hardcoded Orbitron
+      const configuredFont = element.properties.fontFamily;
+      const fontFamily = configuredFont || 'system-ui';
+      
       const fontWeight = element.properties.fontWeight || '900';
       const textAlign = element.properties.textAlign || 'left';
 
-      if (fontFamily && fontFamily !== 'Inter' && !fontFamily.includes('system')) {
+      // Load Google Fonts properly - EXACT COPY from FrameEngine_Canvas
+      if (fontFamily &&
+          fontFamily !== 'system-ui' &&
+          fontFamily !== 'Arial' &&
+          fontFamily !== 'Helvetica' &&
+          !fontFamily.includes('system') &&
+          !fontFamily.includes('sans-serif') &&
+          !fontFamily.includes('serif') &&
+          !fontFamily.includes('monospace')) {
         loadGoogleFont(fontFamily);
       }
 
-      // Calculate position relative to canvas bounds instead of full window
+      // Calculate position relative to canvas bounds
       const scaledLeft = canvasBounds.left + (element.position.x * canvasBounds.scaleX);
       const scaledTop = canvasBounds.top + (element.position.y * canvasBounds.scaleY);
       const scaledWidth = element.position.width * canvasBounds.scaleX;
       const scaledHeight = element.position.height * canvasBounds.scaleY;
       const scaledFontSize = fontSize * Math.min(canvasBounds.scaleX, canvasBounds.scaleY);
 
+      // Build font stack that respects the configured font - EXACT COPY from FrameEngine_Canvas
+      let fontStack;
+      if (configuredFont) {
+        fontStack = `"${configuredFont}", system-ui, -apple-system, sans-serif`;
+      } else {
+        fontStack = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      }
+
+      // CRITICAL: Build styles object WITHOUT hardcoded textShadow
+      const elementStyles: React.CSSProperties = {
+        position: 'absolute',
+        left: scaledLeft,
+        top: scaledTop,
+        width: scaledWidth,
+        height: scaledHeight,
+        fontSize: `${scaledFontSize}px`,
+        fontFamily: fontStack,
+        color: textColor,
+        fontWeight: fontWeight,
+        pointerEvents: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: textAlign === 'center' ? 'center' : 
+                       textAlign === 'right' ? 'flex-end' : 'flex-start',
+        zIndex: element.properties.zIndex || 10,
+      };
+
+      // ONLY add textShadow if explicitly defined in properties (NO HARDCODING)
+      if (element.properties.textShadow === true) {
+        elementStyles.textShadow = '0 0 6px rgba(0,0,0,0.8)';
+      }
+
+      // ONLY add textBorder if explicitly defined in properties
+      if (element.properties.textBorder === true) {
+        elementStyles.WebkitTextStroke = '1px rgba(0,0,0,0.5)';
+      }
+
       return (
         <div
           key={element.id}
-          style={{
-            position: 'absolute',
-            left: scaledLeft,
-            top: scaledTop,
-            width: scaledWidth,
-            height: scaledHeight,
-            fontSize: `${scaledFontSize}px`,
-            fontFamily: `"${fontFamily}", "Orbitron", "Courier New", monospace, sans-serif`,
-            color: textColor,
-            fontWeight: fontWeight,
-            textShadow: '0 0 6px rgba(0,0,0,0.8)',
-            pointerEvents: 'none',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: textAlign === 'center' ? 'center' : 
-                           textAlign === 'right' ? 'flex-end' : 'flex-start',
-            zIndex: element.properties.zIndex || 10,
-          }}
+          style={elementStyles}
         >
           {content}
         </div>
@@ -793,7 +843,7 @@ export default function SensorTest() {
         overflow: 'auto',
       }}>
         <div style={{ marginBottom: '20px' }}>
-          <h2 style={{ color: '#0ff', margin: '0 0 10px 0' }}>🛠 SensorTest Debug Panel</h2>
+          <h2 style={{ color: '#0ff', margin: '0 0 10px 0' }}>🛠 ViewPort Debug Panel</h2>
           <div>Status: {isConfigured ? '✅ Configured' : '⏳ Waiting for config'}</div>
           <div>Rive File: {riveFileBlob ? '✅ Loaded' : '❌ None'}</div>
           <div>Canvas: {canvasConfig ? `${canvasConfig.width}×${canvasConfig.height}` : 'Unknown'}</div>
