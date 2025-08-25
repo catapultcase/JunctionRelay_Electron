@@ -17,12 +17,12 @@ npm run build
 ### Run Built App (Windows)
 After build, the unpacked executable is here:
 ```
-dist\win-unpacked\JunctionRelay.exe
+dist\win-unpacked\JunctionRelay_VirtualDevice.exe
 ```
 
 Example:
 ```powershell
-& "C:\Dev\JunctionRelay_Electron\dist\win-unpacked\JunctionRelay.exe"
+& "C:\Dev\JunctionRelay_Electron\dist\win-unpacked\JunctionRelay_VirtualDevice.exe"
 ```
 
 ### Run Built App (Raspberry Pi / Linux)
@@ -44,11 +44,11 @@ You can pass Chromium/Electron flags to the executable for debugging or performa
 
 ### Windows Examples
 ```powershell
-& "C:\Dev\JunctionRelay_Electron\dist\win-unpacked\JunctionRelay.exe" --disable-gpu
-& "C:\Dev\JunctionRelay_Electron\dist\win-unpacked\JunctionRelay.exe" --disable-software-rasterizer
-& "C:\Dev\JunctionRelay_Electron\dist\win-unpacked\JunctionRelay.exe" --disable-http-cache
-& "C:\Dev\JunctionRelay_Electron\dist\win-unpacked\JunctionRelay.exe" --ignore-gpu-blocklist
-& "C:\Dev\JunctionRelay_Electron\dist\win-unpacked\JunctionRelay.exe" --enable-logging --v=1
+& "C:\Dev\JunctionRelay_Electron\dist\win-unpacked\JunctionRelay_VirtualDevice.exe" --disable-gpu
+& "C:\Dev\JunctionRelay_Electron\dist\win-unpacked\JunctionRelay_VirtualDevice.exe" --disable-software-rasterizer
+& "C:\Dev\JunctionRelay_Electron\dist\win-unpacked\JunctionRelay_VirtualDevice.exe" --disable-http-cache
+& "C:\Dev\JunctionRelay_Electron\dist\win-unpacked\JunctionRelay_VirtualDevice.exe" --ignore-gpu-blocklist
+& "C:\Dev\JunctionRelay_Electron\dist\win-unpacked\JunctionRelay_VirtualDevice.exe" --enable-logging --v=1
 ```
 
 ### Raspberry Pi / Linux Examples
@@ -76,7 +76,7 @@ There are **two ways** to clear the cache:
 ### 1. Disable cache at launch
 Windows:
 ```powershell
-& "C:\Dev\JunctionRelay_Electron\dist\win-unpacked\JunctionRelay.exe" --disable-http-cache
+& "C:\Dev\JunctionRelay_Electron\dist\win-unpacked\JunctionRelay_VirtualDevice.exe" --disable-http-cache
 ```
 Raspberry Pi / Linux:
 ```bash
