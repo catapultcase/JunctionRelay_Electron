@@ -877,7 +877,7 @@ export default function ViewPort() {
   }
 
   // Get canvas config for masking
-  const canvasConfig = riveConfig ? getCanvasConfig(riveConfig) : { width: 400, height: 1280, orientation: 'portrait', backgroundColor: '#000000', backgroundType: 'color' };
+  const canvasConfig = riveConfig ? getCanvasConfig(riveConfig) : { width: 800, height: 600, orientation: 'landscape', backgroundColor: '#000000', backgroundType: 'color' };
 
   // Main visualization view with masking
   return (
