@@ -250,7 +250,7 @@ export default function ViewPort() {
     }
   };
 
-  // Calculate canvas bounds and scaling for overlay positioning
+  // Calculate canvas bounds using EXACT dimensions (no scaling to fit)
   const calculateCanvasBounds = () => {
     if (!riveContainerRef.current || !riveConfig) return;
 
@@ -259,46 +259,32 @@ export default function ViewPort() {
     
     // Get the configured canvas dimensions
     const canvasConfig = getCanvasConfig(riveConfig);
-    const targetAspect = canvasConfig.width / canvasConfig.height;
-    const containerAspect = containerRect.width / containerRect.height;
-
-    let canvasWidth, canvasHeight, canvasLeft, canvasTop;
-
-    // Calculate actual canvas dimensions using Fit.Contain logic
-    if (containerAspect > targetAspect) {
-      // Container is wider than target aspect - fit by height
-      canvasHeight = containerRect.height;
-      canvasWidth = canvasHeight * targetAspect;
-      canvasLeft = (containerRect.width - canvasWidth) / 2;
-      canvasTop = 0;
-    } else {
-      // Container is taller than target aspect - fit by width
-      canvasWidth = containerRect.width;
-      canvasHeight = canvasWidth / targetAspect;
-      canvasLeft = 0;
-      canvasTop = (containerRect.height - canvasHeight) / 2;
-    }
-
-    const scaleX = canvasWidth / canvasConfig.width;
-    const scaleY = canvasHeight / canvasConfig.height;
+    
+    // CRITICAL CHANGE: Use EXACT canvas dimensions (scale = 1.0)
+    const canvasWidth = canvasConfig.width;
+    const canvasHeight = canvasConfig.height;
+    
+    // Center the canvas in the viewport
+    const canvasLeft = (containerRect.width - canvasWidth) / 2;
+    const canvasTop = (containerRect.height - canvasHeight) / 2;
 
     const bounds: CanvasBounds = {
       left: canvasLeft,
       top: canvasTop,
       width: canvasWidth,
       height: canvasHeight,
-      scaleX,
-      scaleY,
+      scaleX: 1.0, // NO SCALING - use exact dimensions
+      scaleY: 1.0, // NO SCALING - use exact dimensions
     };
 
     setCanvasBounds(bounds);
 
     if (isDebugMode) {
-      addConfigMessage(`📐 Canvas bounds calculated:`);
+      addConfigMessage(`Canvas bounds calculated (EXACT DIMENSIONS):`);
       addConfigMessage(`  Container: ${containerRect.width}×${containerRect.height}`);
-      addConfigMessage(`  Config: ${canvasConfig.width}×${canvasConfig.height}`);
-      addConfigMessage(`  Actual canvas: ${canvasWidth}×${canvasHeight} at ${canvasLeft},${canvasTop}`);
-      addConfigMessage(`  Scale: ${scaleX.toFixed(3)}×${scaleY.toFixed(3)}`);
+      addConfigMessage(`  Canvas Config: ${canvasConfig.width}×${canvasConfig.height}`);
+      addConfigMessage(`  Canvas Positioned: ${canvasWidth}×${canvasHeight} at ${canvasLeft},${canvasTop}`);
+      addConfigMessage(`  Scale: 1.0×1.0 (no scaling)`);
     }
   };
 
@@ -344,24 +330,24 @@ export default function ViewPort() {
 
   // Process Rive file data (embedded, URL, or file reference)
   const processRiveFileData = async (config: RiveConfig) => {
-    addConfigMessage("🔍 Starting Rive file processing...");
+    addConfigMessage("Starting Rive file processing...");
     
     const riveConfig = config.frameConfig?.frameConfig?.rive || config.frameConfig?.rive;
     
     if (isDebugMode && riveConfig) {
-      addConfigMessage(`🔍 Rive config found: ${riveConfig ? 'Yes' : 'No'}`);
-      addConfigMessage(`🔍 Rive config keys: ${Object.keys(riveConfig).join(', ')}`);
-      addConfigMessage(`🔍 fileUrl: ${riveConfig.fileUrl || 'None'}`);
-      addConfigMessage(`🔍 file: ${riveConfig.file || 'None'}`);
-      addConfigMessage(`🔍 embedded: ${riveConfig.embedded || 'None'}`);
-      addConfigMessage(`🔍 fileData length: ${riveConfig.fileData?.length || 0}`);
+      addConfigMessage(`Rive config found: ${riveConfig ? 'Yes' : 'No'}`);
+      addConfigMessage(`Rive config keys: ${Object.keys(riveConfig).join(', ')}`);
+      addConfigMessage(`fileUrl: ${riveConfig.fileUrl || 'None'}`);
+      addConfigMessage(`file: ${riveConfig.file || 'None'}`);
+      addConfigMessage(`embedded: ${riveConfig.embedded || 'None'}`);
+      addConfigMessage(`fileData length: ${riveConfig.fileData?.length || 0}`);
       
       if (riveConfig.discovery) {
-        addConfigMessage(`🎮 Discovery found: ${riveConfig.discovery.machines.length} machines`);
+        addConfigMessage(`Discovery found: ${riveConfig.discovery.machines.length} machines`);
         riveConfig.discovery.machines.forEach(machine => {
-          addConfigMessage(`  🎯 ${machine.name}: ${machine.inputs.length} inputs`);
+          addConfigMessage(`  ${machine.name}: ${machine.inputs.length} inputs`);
           machine.inputs.forEach(input => {
-            addConfigMessage(`    📊 ${input.name} (${input.type}): ${input.currentValue}`);
+            addConfigMessage(`    ${input.name} (${input.type}): ${input.currentValue}`);
           });
         });
       }
@@ -369,13 +355,13 @@ export default function ViewPort() {
     
     if (riveConfig?.fileUrl) {
       try {
-        addConfigMessage(`📥 Starting download from: ${riveConfig.fileUrl}`);
+        addConfigMessage(`Starting download from: ${riveConfig.fileUrl}`);
         
         const startTime = Date.now();
         const response = await fetch(riveConfig.fileUrl);
         const fetchTime = Date.now() - startTime;
         
-        addConfigMessage(`📥 Fetch completed in ${fetchTime}ms, status: ${response.status}`);
+        addConfigMessage(`Fetch completed in ${fetchTime}ms, status: ${response.status}`);
         
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -384,28 +370,28 @@ export default function ViewPort() {
         const blob = await response.blob();
         const totalTime = Date.now() - startTime;
         
-        addConfigMessage(`📥 Blob created: ${blob.size} bytes, total time: ${totalTime}ms`);
+        addConfigMessage(`Blob created: ${blob.size} bytes, total time: ${totalTime}ms`);
         
         if (isDebugMode && blob.size < 10000) {
-          addConfigMessage(`⚠️ File appears small - checking first few bytes as text...`);
+          addConfigMessage(`File appears small - checking first few bytes as text...`);
           const text = await blob.slice(0, Math.min(blob.size, 200)).text();
-          addConfigMessage(`📄 First 200 chars: ${text}`);
+          addConfigMessage(`First 200 chars: ${text}`);
         }
         
         const blobUrl = URL.createObjectURL(blob);
         setRiveFileBlob(blobUrl);
         
-        addConfigMessage(`✅ SUCCESS: Rive file downloaded and blob URL created`);
+        addConfigMessage(`SUCCESS: Rive file downloaded and blob URL created`);
         
         return blobUrl;
       } catch (error) {
-        addConfigMessage(`❌ DOWNLOAD FAILED: ${error}`);
+        addConfigMessage(`DOWNLOAD FAILED: ${error}`);
         return null;
       }
     } else if (riveConfig?.fileData && riveConfig?.embedded) {
       try {
         const base64Data = riveConfig.fileData;
-        addConfigMessage(`📦 Processing embedded base64: ${base64Data.length} chars`);
+        addConfigMessage(`Processing embedded base64: ${base64Data.length} chars`);
         
         const binaryString = atob(base64Data);
         const bytes = new Uint8Array(binaryString.length);
@@ -415,26 +401,26 @@ export default function ViewPort() {
         const blob = new Blob([bytes], { type: 'application/octet-stream' });
         const blobUrl = URL.createObjectURL(blob);
         setRiveFileBlob(blobUrl);
-        addConfigMessage(`✅ Embedded file processed successfully`);
+        addConfigMessage(`Embedded file processed successfully`);
         return blobUrl;
       } catch (error) {
-        addConfigMessage(`❌ Embedded processing failed: ${error}`);
+        addConfigMessage(`Embedded processing failed: ${error}`);
         return null;
       }
     } else if (riveConfig?.file) {
       const fileUrl = `/api/frameengine/rive-files/${riveConfig.file}/content`;
       setRiveFileBlob(fileUrl);
-      addConfigMessage(`🔗 Using relative file: ${fileUrl}`);
+      addConfigMessage(`Using relative file: ${fileUrl}`);
       return fileUrl;
     } else if (config.riveFile) {
       const fileUrl = `/api/frameengine/rive-files/${config.riveFile}/content`;
       setRiveFileBlob(fileUrl);
-      addConfigMessage(`🔗 Using top-level file: ${fileUrl}`);
+      addConfigMessage(`Using top-level file: ${fileUrl}`);
       return fileUrl;
     } else {
       const legacyUrl = '/jr.riv';
       setRiveFileBlob(legacyUrl);
-      addConfigMessage(`🔗 Using fallback: ${legacyUrl}`);
+      addConfigMessage(`Using fallback: ${legacyUrl}`);
       return legacyUrl;
     }
   };
@@ -456,7 +442,7 @@ export default function ViewPort() {
     const sensorCount = displayElements.filter(e => e.type === 'sensor').length;
     const textCount = displayElements.filter(e => e.type === 'text').length;
     
-    addDebugMessage(`📋 Extracted ${sensorCount} sensors, ${textCount} text elements`);
+    addDebugMessage(`Extracted ${sensorCount} sensors, ${textCount} text elements`);
     setDisplayElements(displayElements);
     
     return displayElements;
@@ -470,14 +456,14 @@ export default function ViewPort() {
     const discovery = riveConfig?.discovery;
     
     if (discovery) {
-      addConfigMessage(`🔗 Building sensor-to-Rive mappings from discovery data`);
+      addConfigMessage(`Building sensor-to-Rive mappings from discovery data`);
       
       const allRiveInputs: string[] = [];
       discovery.machines.forEach(machine => {
         machine.inputs.forEach(input => {
           const fullKey = `${machine.name}.${input.name}`;
           allRiveInputs.push(fullKey);
-          addConfigMessage(`  📊 Available Rive input: ${fullKey} (${input.type})`);
+          addConfigMessage(`  Available Rive input: ${fullKey} (${input.type})`);
         });
       });
       
@@ -490,7 +476,7 @@ export default function ViewPort() {
           element.riveConnections.availableInputs.forEach(connection => {
             const fullKey = connection.fullKey || `${connection.machineName}.${connection.inputName}`;
             riveInputs.push(fullKey);
-            addConfigMessage(`  🔗 ${sensorTag} -> ${fullKey}`);
+            addConfigMessage(`  ${sensorTag} -> ${fullKey}`);
           });
           
           if (riveInputs.length > 0) {
@@ -500,15 +486,15 @@ export default function ViewPort() {
       });
     }
     
-    addConfigMessage(`🔗 Built mappings for ${Object.keys(mapping).length} sensor tags`);
+    addConfigMessage(`Built mappings for ${Object.keys(mapping).length} sensor tags`);
     setSensorToRiveMap(mapping);
     return mapping;
   };
 
   // Process incoming config
   const processConfig = async (config: RiveConfig) => {
-    addConfigMessage(`📥 Processing config for screenId: ${config.screenId}`);
-    addConfigMessage(`📋 Raw config keys: ${Object.keys(config).join(', ')}`);
+    addConfigMessage(`Processing config for screenId: ${config.screenId}`);
+    addConfigMessage(`Raw config keys: ${Object.keys(config).join(', ')}`);
     
     setRiveConfig(config);
     await processRiveFileData(config);
@@ -516,22 +502,22 @@ export default function ViewPort() {
     buildSensorToRiveMapping(config);
     
     setIsConfigured(true);
-    addConfigMessage("✅ Configuration complete!");
+    addConfigMessage("Configuration complete!");
   };
 
   // Process incoming sensor data with enhanced comma-separated sensor tag support
   const processSensorData = (sensorPayload: SensorPayload) => {
     if (!riveConfig) {
-      addDebugMessage("⚠️ No config loaded, ignoring sensor data");
+      addDebugMessage("No config loaded, ignoring sensor data");
       return;
     }
     
     if (sensorPayload.screenId !== riveConfig.screenId) {
-      addDebugMessage(`⚠️ ScreenId mismatch: ${sensorPayload.screenId} vs ${riveConfig.screenId}`);
+      addDebugMessage(`ScreenId mismatch: ${sensorPayload.screenId} vs ${riveConfig.screenId}`);
       return;
     }
 
-    addDebugMessage(`📊 Processing sensors: ${Object.keys(sensorPayload.sensors).join(', ')}`);
+    addDebugMessage(`Processing sensors: ${Object.keys(sensorPayload.sensors).join(', ')}`);
     
     // Expand comma-separated sensor tags
     const expandedSensorData: Record<string, any> = {};
@@ -540,7 +526,7 @@ export default function ViewPort() {
       const sensorTags = sensorKey.split(',').map(tag => tag.trim());
       sensorTags.forEach(tag => {
         expandedSensorData[tag] = sensorData;
-        addDebugMessage(`📊 Expanded sensor: ${tag} = ${sensorData.value} ${sensorData.unit}`);
+        addDebugMessage(`Expanded sensor: ${tag} = ${sensorData.value} ${sensorData.unit}`);
       });
     });
     
@@ -570,7 +556,7 @@ export default function ViewPort() {
   // Update Rive state machine inputs based on sensor data
   const updateRiveInputsFromSensorData = (sensorData: Record<string, any>) => {
     if (!rive || Object.keys(stateMachineInputRefs.current).length === 0) {
-      addDebugMessage("⚠️ Rive not ready or no state machine inputs available");
+      addDebugMessage("Rive not ready or no state machine inputs available");
       return;
     }
 
@@ -583,9 +569,9 @@ export default function ViewPort() {
           try {
             const newValue = Number(data.value) || 0;
             inputRef.value = newValue;
-            addDebugMessage(`🔄 Updated Rive "${riveInputKey}" = ${newValue} (from sensor "${sensorTag}")`);
+            addDebugMessage(`Updated Rive "${riveInputKey}" = ${newValue} (from sensor "${sensorTag}")`);
           } catch (error) {
-            addDebugMessage(`⚠️ Error updating Rive input "${riveInputKey}": ${error}`);
+            addDebugMessage(`Error updating Rive input "${riveInputKey}": ${error}`);
           }
         }
       });
@@ -595,9 +581,9 @@ export default function ViewPort() {
         try {
           const newValue = Number(data.value) || 0;
           directInputRef.value = newValue;
-          addDebugMessage(`🔄 Updated Rive "${sensorTag}" = ${newValue} (direct match)`);
+          addDebugMessage(`Updated Rive "${sensorTag}" = ${newValue} (direct match)`);
         } catch (error) {
-          addDebugMessage(`⚠️ Error updating Rive input "${sensorTag}": ${error}`);
+          addDebugMessage(`Error updating Rive input "${sensorTag}": ${error}`);
         }
       }
     });
@@ -605,15 +591,15 @@ export default function ViewPort() {
 
   // IPC event listeners
   useEffect(() => {
-    addDebugMessage("🔌 Setting up IPC listeners...");
+    addDebugMessage("Setting up IPC listeners...");
     
     if (!window.ipcRenderer) {
-      addDebugMessage("❌ No ipcRenderer available");
+      addDebugMessage("No ipcRenderer available");
       return;
     }
 
     const handleRiveConfig = (_event: any, data: RiveConfig) => {
-      addDebugMessage("📋 Received rive-config event");
+      addDebugMessage("Received rive-config event");
       processConfig(data);
     };
 
@@ -623,7 +609,7 @@ export default function ViewPort() {
 
     const handleDisplayJson = (_event: any, data: any) => {
       if (data.type === 'rive_config') {
-        addDebugMessage("📋 Received rive_config via display:json");
+        addDebugMessage("Received rive_config via display:json");
         processConfig(data);
       } else if (data.type === 'rive_sensor') {
         processSensorData(data);
@@ -641,30 +627,31 @@ export default function ViewPort() {
     };
   }, [riveConfig, sensorToRiveMap]);
 
-  // Set up Rive
+  // Set up Rive with EXACT dimensions
   const riveOptions = useMemo(() => ({
     src: riveFileBlob || '',
     autoplay: true,
-    layout: new Layout({ fit: Fit.Contain, alignment: Alignment.Center }),
+    // CRITICAL: Use Fit.None to prevent Rive from scaling
+    layout: new Layout({ fit: Fit.None, alignment: Alignment.Center }),
     onLoad: () => {
-      addConfigMessage(`✅ Rive loaded successfully!`);
+      addConfigMessage(`Rive loaded successfully with EXACT dimensions!`);
       if (rive && 'artboardNames' in rive && Array.isArray(rive.artboardNames)) {
-        addConfigMessage(`🎨 Artboards: ${rive.artboardNames.join(', ')}`);
+        addConfigMessage(`Artboards: ${rive.artboardNames.join(', ')}`);
       } else {
-        addConfigMessage(`🎨 Artboards: none or not available`);
+        addConfigMessage(`Artboards: none or not available`);
       }
       if (rive && rive.stateMachineNames?.length > 0) {
-        addConfigMessage(`🎮 State machines: ${rive.stateMachineNames.join(', ')}`);
+        addConfigMessage(`State machines: ${rive.stateMachineNames.join(', ')}`);
       } else {
-        addConfigMessage(`⚠️ No state machines found`);
+        addConfigMessage(`No state machines found`);
       }
       
       // Recalculate bounds after Rive loads
       setTimeout(calculateCanvasBounds, 100);
     },
     onLoadError: (error: any) => {
-      addConfigMessage(`❌ Rive load error: ${error}`);
-      addConfigMessage(`📄 Attempted to load: ${riveFileBlob}`);
+      addConfigMessage(`Rive load error: ${error}`);
+      addConfigMessage(`Attempted to load: ${riveFileBlob}`);
     },
   }), [riveFileBlob]);
 
@@ -692,22 +679,22 @@ export default function ViewPort() {
                 inputRefs[fullKey] = input;
                 inputRefs[input.name] = input;
                 
-                addDebugMessage(`🎛️ Registered Rive input: ${fullKey} (type: ${input.type})`);
+                addDebugMessage(`Registered Rive input: ${fullKey} (type: ${input.type})`);
               }
             });
           } catch (error) {
-            addDebugMessage(`⚠️ Error processing state machine "${machineName}": ${error}`);
+            addDebugMessage(`Error processing state machine "${machineName}": ${error}`);
           }
         });
         
         stateMachineInputRefs.current = inputRefs;
-        addConfigMessage(`🎛️ Built ${Object.keys(inputRefs).length} input references`);
+        addConfigMessage(`Built ${Object.keys(inputRefs).length} input references`);
         
         if (Object.keys(currentSensorData).length > 0) {
           updateRiveInputsFromSensorData(currentSensorData);
         }
       } catch (error) {
-        addConfigMessage(`❌ Error building state machine inputs: ${error}`);
+        addConfigMessage(`Error building state machine inputs: ${error}`);
       }
     };
 
@@ -715,7 +702,7 @@ export default function ViewPort() {
     return () => clearTimeout(timer);
   }, [rive, currentSensorData]);
 
-  // Render overlay elements with canvas-relative positioning - FIXED VERSION
+  // Render overlay elements with EXACT positioning and masking
   const renderOverlayElements = () => {
     if (!riveConfig || !canvasBounds) return null;
 
@@ -750,14 +737,14 @@ export default function ViewPort() {
 
       const fontSize = element.properties.fontSize || 32;
       
-      // FIX: Use the font from config, fallback to system font instead of hardcoded Orbitron
+      // Use the font from config, fallback to system font
       const configuredFont = element.properties.fontFamily;
       const fontFamily = configuredFont || 'system-ui';
       
       const fontWeight = element.properties.fontWeight || '900';
       const textAlign = element.properties.textAlign || 'left';
 
-      // Load Google Fonts properly - EXACT COPY from FrameEngine_Canvas
+      // Load Google Fonts properly
       if (fontFamily &&
           fontFamily !== 'system-ui' &&
           fontFamily !== 'Arial' &&
@@ -769,14 +756,17 @@ export default function ViewPort() {
         loadGoogleFont(fontFamily);
       }
 
-      // Calculate position relative to canvas bounds
-      const scaledLeft = canvasBounds.left + (element.position.x * canvasBounds.scaleX);
-      const scaledTop = canvasBounds.top + (element.position.y * canvasBounds.scaleY);
-      const scaledWidth = element.position.width * canvasBounds.scaleX;
-      const scaledHeight = element.position.height * canvasBounds.scaleY;
-      const scaledFontSize = fontSize * Math.min(canvasBounds.scaleX, canvasBounds.scaleY);
+      // EXACT positioning - no scaling, direct 1:1 mapping
+      const elementLeft = canvasBounds.left + element.position.x;
+      const elementTop = canvasBounds.top + element.position.y;
+      const elementWidth = element.position.width;
+      const elementHeight = element.position.height;
 
-      // Build font stack that respects the configured font - EXACT COPY from FrameEngine_Canvas
+      // Padding calculation with scale = 1.0 (exact dimensions)
+      const basePadding = 4;
+      const padding = basePadding; // No scaling since we're using exact dimensions
+
+      // Build font stack that respects the configured font
       let fontStack;
       if (configuredFont) {
         fontStack = `"${configuredFont}", system-ui, -apple-system, sans-serif`;
@@ -784,28 +774,35 @@ export default function ViewPort() {
         fontStack = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       }
 
-      // CRITICAL: Build styles object WITHOUT hardcoded textShadow
+              // Build styles object with exact positioning
       const elementStyles: React.CSSProperties = {
         position: 'absolute',
-        left: scaledLeft,
-        top: scaledTop,
-        width: scaledWidth,
-        height: scaledHeight,
-        fontSize: `${scaledFontSize}px`,
+        left: elementLeft,
+        top: elementTop,
+        width: elementWidth,
+        height: elementHeight,
+        fontSize: `${fontSize}px`, // Exact fontSize, no scaling
         fontFamily: fontStack,
         color: textColor,
         fontWeight: fontWeight,
         pointerEvents: 'none',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: textAlign === 'center' ? 'center' : 
-                       textAlign === 'right' ? 'flex-end' : 'flex-start',
+        flexDirection: 'column',
+        alignItems: textAlign === 'center' ? 'center' : 
+                   textAlign === 'right' ? 'flex-end' : 'flex-start',
+        justifyContent: 'center',
         zIndex: element.properties.zIndex || 10,
+        // Exact padding, no scaling
+        padding: `${padding}px`,
+        boxSizing: 'border-box',
+        wordWrap: 'break-word',
+        overflow: 'hidden',
+        lineHeight: element.properties.lineHeight || '1.4',
       };
 
       // ONLY add textShadow if explicitly defined in properties (NO HARDCODING)
       if (element.properties.textShadow === true) {
-        elementStyles.textShadow = '0 0 6px rgba(0,0,0,0.8)';
+        elementStyles.textShadow = '1px 1px 2px rgba(0,0,0,0.3)';
       }
 
       // ONLY add textBorder if explicitly defined in properties
@@ -843,22 +840,22 @@ export default function ViewPort() {
         overflow: 'auto',
       }}>
         <div style={{ marginBottom: '20px' }}>
-          <h2 style={{ color: '#0ff', margin: '0 0 10px 0' }}>🛠 ViewPort Debug Panel</h2>
-          <div>Status: {isConfigured ? '✅ Configured' : '⏳ Waiting for config'}</div>
-          <div>Rive File: {riveFileBlob ? '✅ Loaded' : '❌ None'}</div>
+          <h2 style={{ color: '#0ff', margin: '0 0 10px 0' }}>ViewPort Debug Panel (EXACT DIMENSIONS)</h2>
+          <div>Status: {isConfigured ? 'Configured' : 'Waiting for config'}</div>
+          <div>Rive File: {riveFileBlob ? 'Loaded' : 'None'}</div>
           <div>Canvas: {canvasConfig ? `${canvasConfig.width}×${canvasConfig.height}` : 'Unknown'}</div>
           <div>Canvas Bounds: {canvasBounds ? `${Math.round(canvasBounds.width)}×${Math.round(canvasBounds.height)} at ${Math.round(canvasBounds.left)},${Math.round(canvasBounds.top)}` : 'Not calculated'}</div>
-          <div>Scale: {canvasBounds ? `${canvasBounds.scaleX.toFixed(3)}×${canvasBounds.scaleY.toFixed(3)}` : 'N/A'}</div>
+          <div>Scale: {canvasBounds ? `${canvasBounds.scaleX.toFixed(3)}×${canvasBounds.scaleY.toFixed(3)} (EXACT - no scaling)` : 'N/A'}</div>
           <div>Elements: {displayElements.length}</div>
           <div>Sensors: {Object.keys(currentSensorData).length}</div>
-          <div>IPC: {window.ipcRenderer ? '✅' : '❌'}</div>
+          <div>IPC: {window.ipcRenderer ? 'Available' : 'Not Available'}</div>
           <div>Rive Inputs: {Object.keys(stateMachineInputRefs.current).length}</div>
           <div>Sensor-Rive Mappings: {Object.keys(sensorToRiveMap).length}</div>
         </div>
 
         <div style={{ marginBottom: '20px', display: 'flex', gap: '20px' }}>
           <div style={{ flex: 1 }}>
-            <h3 style={{ color: '#0f0', margin: '0 0 10px 0' }}>📊 Sensor Log</h3>
+            <h3 style={{ color: '#0f0', margin: '0 0 10px 0' }}>Sensor Log</h3>
             <div style={{ 
               height: '200px', 
               overflow: 'auto', 
@@ -874,7 +871,7 @@ export default function ViewPort() {
           </div>
           
           <div style={{ flex: 1 }}>
-            <h3 style={{ color: '#ff0', margin: '0 0 10px 0' }}>📋 Config Log</h3>
+            <h3 style={{ color: '#ff0', margin: '0 0 10px 0' }}>Config Log</h3>
             <div style={{ 
               height: '200px', 
               overflow: 'auto', 
@@ -892,7 +889,7 @@ export default function ViewPort() {
 
         {Object.keys(currentSensorData).length > 0 && (
           <div style={{ marginBottom: '20px' }}>
-            <h3 style={{ color: '#ff0', margin: '0 0 10px 0' }}>📊 Current Sensor Data</h3>
+            <h3 style={{ color: '#ff0', margin: '0 0 10px 0' }}>Current Sensor Data</h3>
             <div style={{ backgroundColor: '#111', padding: '10px', borderRadius: '4px' }}>
               {Object.entries(currentSensorData).map(([key, data]: [string, any]) => (
                 <div key={key} style={{ marginBottom: '5px' }}>
@@ -905,7 +902,7 @@ export default function ViewPort() {
 
         {Object.keys(sensorToRiveMap).length > 0 && (
           <div style={{ marginBottom: '20px' }}>
-            <h3 style={{ color: '#f0f', margin: '0 0 10px 0' }}>🔗 Sensor-to-Rive Mappings</h3>
+            <h3 style={{ color: '#f0f', margin: '0 0 10px 0' }}>Sensor-to-Rive Mappings</h3>
             <div style={{ backgroundColor: '#111', padding: '10px', borderRadius: '4px' }}>
               {Object.entries(sensorToRiveMap).map(([sensorTag, riveInputs]) => (
                 <div key={sensorTag} style={{ marginBottom: '5px' }}>
@@ -918,7 +915,7 @@ export default function ViewPort() {
 
         {Object.keys(stateMachineInputRefs.current).length > 0 && (
           <div style={{ marginBottom: '20px' }}>
-            <h3 style={{ color: '#0f0', margin: '0 0 10px 0' }}>🎛️ Available Rive Inputs</h3>
+            <h3 style={{ color: '#0f0', margin: '0 0 10px 0' }}>Available Rive Inputs</h3>
             <div style={{ backgroundColor: '#111', padding: '10px', borderRadius: '4px', maxHeight: '150px', overflow: 'auto' }}>
               {Object.keys(stateMachineInputRefs.current).map(inputKey => (
                 <div key={inputKey} style={{ marginBottom: '2px', fontSize: '11px' }}>
@@ -934,15 +931,15 @@ export default function ViewPort() {
 
         {canvasBounds && displayElements.length > 0 && (
           <div style={{ marginBottom: '20px' }}>
-            <h3 style={{ color: '#09f', margin: '0 0 10px 0' }}>📐 Element Positioning</h3>
+            <h3 style={{ color: '#09f', margin: '0 0 10px 0' }}>Element Positioning (EXACT)</h3>
             <div style={{ backgroundColor: '#111', padding: '10px', borderRadius: '4px', maxHeight: '150px', overflow: 'auto' }}>
               {displayElements.map(element => {
-                const scaledLeft = canvasBounds.left + (element.position.x * canvasBounds.scaleX);
-                const scaledTop = canvasBounds.top + (element.position.y * canvasBounds.scaleY);
+                const elementLeft = canvasBounds.left + element.position.x;
+                const elementTop = canvasBounds.top + element.position.y;
                 return (
                   <div key={element.id} style={{ marginBottom: '2px', fontSize: '11px' }}>
                     <span style={{ color: '#09f' }}>{element.id}:</span>
-                    <span style={{ color: '#999' }}> Config({element.position.x},{element.position.y}) → Screen({Math.round(scaledLeft)},{Math.round(scaledTop)})</span>
+                    <span style={{ color: '#999' }}> Config({element.position.x},{element.position.y}) → Screen({Math.round(elementLeft)},{Math.round(elementTop)}) [1:1]</span>
                   </div>
                 );
               })}
@@ -990,14 +987,17 @@ export default function ViewPort() {
           <div style={{ marginBottom: '20px', fontSize: '48px' }}>⏳</div>
           <div>Waiting for configuration...</div>
           <div style={{ fontSize: '14px', color: '#666', marginTop: '10px' }}>
-            IPC: {window.ipcRenderer ? '✅ Connected' : '❌ Not Available'}
+            IPC: {window.ipcRenderer ? 'Connected' : 'Not Available'}
           </div>
         </div>
       </div>
     );
   }
 
-  // Main visualization view
+  // Get canvas config for masking
+  const canvasConfig = getCanvasConfig(riveConfig);
+
+  // Main visualization view with masking
   return (
     <div style={{
       position: 'fixed',
@@ -1010,19 +1010,143 @@ export default function ViewPort() {
       backgroundColor: '#000',
       overflow: 'hidden',
       cursor: 'none',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
     }}>
-      {/* Rive animation */}
+      {/* CENTERED CANVAS CONTAINER */}
       <div 
-        ref={riveContainerRef}
-        style={{ width: '100%', height: '100%' }}
+        style={{
+          width: canvasConfig.width,
+          height: canvasConfig.height,
+          position: 'relative',
+          overflow: 'hidden', // CRITICAL: This masks content outside canvas bounds
+          backgroundColor: canvasConfig.backgroundColor,
+          border: isDebugMode ? '2px solid #ff0' : 'none', // Debug border
+        }}
       >
-        {riveFileBlob && (
-          <RiveComponent style={{ width: '100%', height: '100%' }} />
-        )}
-      </div>
+        {/* Rive animation container sized exactly to canvas config */}
+        <div 
+          ref={riveContainerRef}
+          style={{ 
+            width: `${canvasConfig.width}px`, 
+            height: `${canvasConfig.height}px`,
+            position: 'relative'
+          }}
+        >
+          {riveFileBlob && (
+            <RiveComponent style={{ 
+              width: `${canvasConfig.width}px`, 
+              height: `${canvasConfig.height}px` 
+            }} />
+          )}
+        </div>
 
-      {/* Overlay elements positioned relative to canvas */}
-      {renderOverlayElements()}
+        {/* Overlay elements positioned relative to canvas - MASKED by container overflow */}
+        {displayElements.map((element) => {
+          let content = '';
+          let textColor = element.properties.textColor || element.properties.color || '#929e00';
+
+          if (element.type === 'sensor' && element.sensorTag) {
+            const sensorData = currentSensorData[element.sensorTag];
+            const value = sensorData?.value?.toString() || element.properties.placeholderValue || '--';
+            const unit = sensorData?.unit || element.properties.placeholderUnit || '';
+            const showUnit = element.properties.showUnit !== false;
+            const showLabel = element.properties.showLabel !== false; 
+            const label = element.properties.placeholderSensorLabel || ''; 
+
+            let contentParts = [];
+
+            if (showLabel && label) {
+              contentParts.push(label);
+            }
+
+            contentParts.push(value);
+
+            if (showUnit && unit) {
+              contentParts.push(unit);
+            }
+
+            content = contentParts.join(' ');
+          } else if (element.type === 'text') {
+            content = element.properties.text || '';
+          }
+
+          const fontSize = element.properties.fontSize || 32;
+          const configuredFont = element.properties.fontFamily;
+          const fontFamily = configuredFont || 'system-ui';
+          const fontWeight = element.properties.fontWeight || '900';
+          const textAlign = element.properties.textAlign || 'left';
+
+          // Load Google Fonts
+          if (fontFamily &&
+              fontFamily !== 'system-ui' &&
+              fontFamily !== 'Arial' &&
+              fontFamily !== 'Helvetica' &&
+              !fontFamily.includes('system') &&
+              !fontFamily.includes('sans-serif') &&
+              !fontFamily.includes('serif') &&
+              !fontFamily.includes('monospace')) {
+            loadGoogleFont(fontFamily);
+          }
+
+          // EXACT positioning within masked container (no offset needed, no canvas bounds dependency)
+          const elementLeft = element.position.x;
+          const elementTop = element.position.y;
+          const elementWidth = element.position.width;
+          const elementHeight = element.position.height;
+
+          const basePadding = 4;
+
+          let fontStack;
+          if (configuredFont) {
+            fontStack = `"${configuredFont}", system-ui, -apple-system, sans-serif`;
+          } else {
+            fontStack = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+          }
+
+          const elementStyles: React.CSSProperties = {
+            position: 'absolute',
+            left: elementLeft,
+            top: elementTop,
+            width: elementWidth,
+            height: elementHeight,
+            fontSize: `${fontSize}px`,
+            fontFamily: fontStack,
+            color: textColor,
+            fontWeight: fontWeight,
+            pointerEvents: 'none',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: textAlign === 'center' ? 'center' : 
+                       textAlign === 'right' ? 'flex-end' : 'flex-start',
+            justifyContent: 'center',
+            zIndex: element.properties.zIndex || 10,
+            padding: `${basePadding}px`,
+            boxSizing: 'border-box',
+            wordWrap: 'break-word',
+            overflow: 'hidden',
+            lineHeight: element.properties.lineHeight || '1.4',
+          };
+
+          if (element.properties.textShadow === true) {
+            elementStyles.textShadow = '1px 1px 2px rgba(0,0,0,0.3)';
+          }
+
+          if (element.properties.textBorder === true) {
+            elementStyles.WebkitTextStroke = '1px rgba(0,0,0,0.5)';
+          }
+
+          return (
+            <div
+              key={element.id}
+              style={elementStyles}
+            >
+              {content}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
